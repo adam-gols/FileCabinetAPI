@@ -605,21 +605,19 @@ class UIManager {
       
       // If moving to next game (direction > 0), handle OBS recording transition BEFORE changing games
       if (direction > 0) {
-        // Get the CURRENT game data (the one being finished) for OBS recording
-        const currentGame = this.currentSchedule.games[this.currentGameIndex];
-        if (currentGame) {
-          console.log(`📹 Creating recording for current game at index ${this.currentGameIndex}:`, currentGame);
-          
-          // Prepare current game data for OBS filename generation
-          const currentGameData = {
+        // Get the UPCOMING game data (the one we are navigating to) for OBS recording
+        const nextGame = this.currentSchedule.games[newIndex];
+        if (nextGame) {
+          console.log(`📹 Creating recording for next game at index ${newIndex}:`, nextGame);
+          // Prepare next game data for OBS filename generation
+          const nextGameData = {
             event: this.currentEvent?.eventName || this.currentEvent?.name || 'Event',
-            gameNumber: currentGame.gameNumber || currentGame.game || `Game${this.currentGameIndex + 1}`,
-            team1: currentGame.team1 || currentGame.homeTeam || currentGame.team1Name || 'Team1',
-            team2: currentGame.team2 || currentGame.awayTeam || currentGame.team2Name || 'Team2'
+            gameNumber: nextGame.gameNumber || nextGame.game || `Game${newIndex + 1}`,
+            team1: nextGame.team1 || nextGame.homeTeam || nextGame.team1Name || 'Team1',
+            team2: nextGame.team2 || nextGame.awayTeam || nextGame.team2Name || 'Team2'
           };
-          
-          // Handle OBS recording transition for CURRENT game before moving to next
-          await this.handleOBSRecordingTransition(currentGameData);
+          // Handle OBS recording transition for NEXT game before moving to it
+          await this.handleOBSRecordingTransition(nextGameData);
         }
       }
       
@@ -750,6 +748,16 @@ class UIManager {
       // Special handling for first game: set actual start time to 5 minutes before official start
       if (this.currentGameIndex === 0 && (!game.actualStartTime || game.actualStartTime === 'TBD' || game.actualStartTime === '')) {
         this.setFirstGameActualStartTime();
+      }
+      // Set OBS filename for first game (before recording starts)
+      if (this.currentGameIndex === 0 && this.obsWebSocket && this.obsWebSocket.enabled) {
+        const firstGameData = {
+          event: this.currentEvent?.eventName || this.currentEvent?.name || 'Event',
+          gameNumber: game.gameNumber || game.game || `Game${this.currentGameIndex + 1}`,
+          team1: game.team1 || game.homeTeam || game.team1Name || 'Team1',
+          team2: game.team2 || game.awayTeam || game.team2Name || 'Team2'
+        };
+        this.obsWebSocket.setRecordingFilename(firstGameData);
       }
       
       // Send complete game data to Singular Live after loading new game
