@@ -1,0 +1,47 @@
+/* Additional styles for File Cabinet integration */
+
+/* Control header with refresh button */
+.gols-control-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.gols-refresh-btn {
+  background: #c41e3a;
+  border: none;
+  border-radius: 2px;
+  color: white;
+  padding: 2px 6px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  height: 16px;
+  min-width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gols-refresh-btn:hover {
+  background: #a01729;
+}
+
+.gols-refresh-btn:active {
+  background: #8b1323;
+}
+
+.gols-refresh-btn i {
+  font-size: 8px;
+}
+
+/* Ensure the control group layout works with the header */
+#gols-widget .gols-control-group {
+  margin-bottom: 8px;
+}
+
+#gols-widget .gols-control-label {
+  margin: 0;
+  font-weight: bold;
+}

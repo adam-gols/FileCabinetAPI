@@ -1,0 +1,931 @@
+openapi: 3.0.3
+info:
+  title: File Cabinet Public API
+  description: |
+    A public REST API that exposes event data from a Google Sheets "File Cabinet" spreadsheet.
+    
+    The API provides read-only access to event data with intelligent date parsing,
+    filtering capabilities, and efficient caching.
+  version: 1.0.0
+  contact:
+    name: File Cabinet API
+  license:
+    name: MIT
+
+servers:
+  - url: https://file-cabinet-api-822514983888.us-central1.run.app
+    description: Production server
+
+paths:
+  /health:
+    get:
+      summary: Health Check
+      description: Returns the health status of the API service
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  service:
+                    type: string
+                    example: "file-cabinet-api"
+                  version:
+                    type: string
+                    example: "1.0.0"
+
+  /file-cabinet:
+    get:
+      summary: Get File Cabinet Events
+      description: |
+        Returns events from a specified spreadsheet tab with optional filtering by date.
+        
+        ### Spreadsheet Selection
+        
+        You can specify a custom spreadsheet using the `sheetId` parameter, or omit it to use the default File Cabinet spreadsheet.
+        
+        ### Date Interpretation Logic
+        
+        When a date **does not include a year**:
+        1. Compare MM/DD to today's MM/DD
+        2. If the date is **earlier than today**, assume **next year**
+        3. Otherwise, assume **current year**
+        
+        ### Caching
+        
+        Responses are cached for 60 seconds. ETags are supported for conditional requests.
+      operationId: getFileCabinetEvents
+      parameters:
+        - name: tab
+          in: query
+          required: true
+          description: Name of the spreadsheet tab to read from
+          schema:
+            type: string
+          example: "Leagues"
+        - name: sheetId
+          in: query
+          required: false
+          description: |
+            Google Sheets ID of a custom File Cabinet spreadsheet.
+            If omitted, uses the default File Cabinet spreadsheet.
+            Must be a valid Google Sheets ID that the API has read access to.
+          schema:
+            type: string
+          example: "1ABCDEfghijk123456789lmnopQRST-uvwxyz"
+        - name: dateFilter
+          in: query
+          required: false
+          description: Filter events by date relative to today
+          schema:
+            type: string
+            enum: [all, current, future]
+            default: all
+          example: "future"
+        - name: today
+          in: query
+          required: false
+          description: |
+            Override for "today's" date for testing purposes. 
+            Format: YYYY-MM-DD
+          schema:
+            type: string
+            format: date
+          example: "2025-12-23"
+        - name: If-None-Match
+          in: header
+          required: false
+          description: ETag value for conditional requests
+          schema:
+            type: string
+          example: '"abc123def456"'
+      responses:
+        '200':
+          description: Successfully retrieved events
+          headers:
+            ETag:
+              description: Entity tag for caching
+              schema:
+                type: string
+            Cache-Control:
+              description: Caching directives
+              schema:
+                type: string
+                example: "public, max-age=60"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Event'
+                  meta:
+                    $ref: '#/components/schemas/ResponseMeta'
+        '304':
+          description: Not Modified (when ETag matches)
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingTab:
+                  summary: Missing tab parameter
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "Missing required query parameter: tab"
+                invalidDateFilter:
+                  summary: Invalid dateFilter value
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "Invalid dateFilter. Must be one of: all, current, future"
+                invalidToday:
+                  summary: Invalid today parameter format
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "Invalid today parameter. Must be in YYYY-MM-DD format"
+                noSpreadsheetId:
+                  summary: No spreadsheet ID available
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "No spreadsheet ID available. Either provide sheetId parameter or set FILE_CABINET_SHEET_ID environment variable"
+        '403':
+          description: Permission denied to access the spreadsheet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error:
+                  code: "PERMISSION_DENIED"
+                  message: "Access denied to the specified spreadsheet. Check sharing permissions."
+        '404':
+          description: Tab or spreadsheet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                tabNotFound:
+                  summary: Tab not found in spreadsheet
+                  value:
+                    success: false
+                    error:
+                      code: "NOT_FOUND"
+                      message: "Tab 'Leagues' not found in spreadsheet"
+                spreadsheetNotFound:
+                  summary: Spreadsheet not found
+                  value:
+                    success: false
+                    error:
+                      code: "NOT_FOUND"
+                      message: "Spreadsheet not found. Verify the sheet ID is correct."
+              example:
+                success: false
+                error:
+                  code: "NOT_FOUND"
+                  message: "Tab 'NonExistentTab' not found in File Cabinet"
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                success: false
+                error:
+                  code: "SERVICE_ERROR"
+                  message: "Internal server error occurred while processing request"
+
+  /operations/{sheetId}/site-info:
+    get:
+      summary: Get Operations Sheet Site Info
+      description: |
+        Returns all data from the "Site Info" tab of an Operations Sheet.
+        
+        This endpoint provides detailed operational information including:
+        - Channel and computer assignments
+        - Staff assignments
+        - Scheduling information
+        - Equipment details
+        - Facility information
+        
+        The data is cached for 60 seconds and supports ETag-based caching.
+      operationId: getOperationsSiteInfo
+      parameters:
+        - name: sheetId
+          in: path
+          required: true
+          description: The Google Sheets ID of the Operations Sheet
+          schema:
+            type: string
+          example: "1abc123def456ghi789jkl012mno345pqr678stu901vwx234yz"
+      responses:
+        '200':
+          description: Site info data retrieved successfully
+          headers:
+            ETag:
+              description: Entity tag for caching
+              schema:
+                type: string
+            Cache-Control:
+              description: Cache control directive
+              schema:
+                type: string
+                example: "public, max-age=60"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      sheetId:
+                        type: string
+                        description: The Google Sheets ID that was queried
+                        example: "1abc123def456ghi789jkl012mno345pqr678stu901vwx234yz"
+                      tabName:
+                        type: string
+                        description: The name of the tab that was accessed
+                        example: "Site Info"
+                      totalRecords:
+                        type: integer
+                        description: Number of site info records returned
+                        example: 3
+                      headers:
+                        type: array
+                        description: Column headers from the spreadsheet
+                        items:
+                          type: string
+                        example: ["Channel", "Computer", "Date", "Singular", "Facility", "Division", "STAFF", "1st Game Start", "Last Game End (Last Game Start + 1 HR)", "Site Map", "Internet?", "Ethernet Info", "WIFI username", "WIFI password", "Jump Available", "Zixi Ingest"]
+                      siteInfo:
+                        type: array
+                        description: Array of site info records
+                        items:
+                          $ref: '#/components/schemas/SiteInfoRecord'
+        '304':
+          description: Not modified - client has current version (ETag match)
+        '400':
+          description: Bad Request - Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Operations sheet or Site Info tab not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                sheetNotFound:
+                  summary: Operations sheet not found
+                  value:
+                    success: false
+                    error:
+                      code: "SHEET_NOT_FOUND"
+                      message: "Operations sheet not found or not accessible"
+                tabNotFound:
+                  summary: Site Info tab not found
+                  value:
+                    success: false
+                    error:
+                      code: "TAB_NOT_FOUND"
+                      message: "Site Info tab not found in the specified sheet"
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /operations/{sheetId}/schedule:
+    get:
+      summary: Get Daily Schedule for Operations Sheet
+      description: |
+        Returns all games from the "Master Schedule" tab filtered by date and location, sorted chronologically.
+        
+        This endpoint provides the complete daily schedule for a specific venue, including:
+        - Game times and details
+        - Team matchups and scores
+        - Game numbers and divisions
+        - Comments and tournament bracket information
+        - Actual start times for operational tracking
+        
+        Results are automatically sorted by game time (earliest to latest).
+        The data is cached for 60 seconds and supports ETag-based caching.
+      operationId: getOperationsSchedule
+      parameters:
+        - name: sheetId
+          in: path
+          required: true
+          description: The Google Sheets ID of the Operations Sheet
+          schema:
+            type: string
+          example: "1abc123def456ghi789jkl012mno345pqr678stu901vwx234yz"
+        - name: date
+          in: query
+          required: true
+          description: Date to filter games by (YYYY-MM-DD format)
+          schema:
+            type: string
+            format: date
+          example: "2025-12-12"
+        - name: location
+          in: query
+          required: true
+          description: Location/venue to filter games by (must match exactly)
+          schema:
+            type: string
+          example: "Pool 1: Gate"
+      responses:
+        '200':
+          description: Daily schedule retrieved successfully
+          headers:
+            ETag:
+              description: Entity tag for caching
+              schema:
+                type: string
+            Cache-Control:
+              description: Cache control directive
+              schema:
+                type: string
+                example: "public, max-age=60"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      sheetId:
+                        type: string
+                        description: The Google Sheets ID that was queried
+                        example: "1abc123def456ghi789jkl012mno345pqr678stu901vwx234yz"
+                      tabName:
+                        type: string
+                        description: The name of the tab that was accessed
+                        example: "Master Schedule"
+                      date:
+                        type: string
+                        format: date
+                        description: The date that was filtered for
+                        example: "2025-12-12"
+                      location:
+                        type: string
+                        description: The location that was filtered for
+                        example: "Pool 1: Gate"
+                      totalGames:
+                        type: integer
+                        description: Number of games returned for this date/location
+                        example: 15
+                      games:
+                        type: array
+                        description: Array of games scheduled for this date/location, sorted chronologically
+                        items:
+                          $ref: '#/components/schemas/ScheduleGame'
+        '304':
+          description: Not modified - client has current version (ETag match)
+        '400':
+          description: Bad Request - Invalid or missing parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingParams:
+                  summary: Missing required parameters
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "Both date and location parameters are required"
+                invalidDateFormat:
+                  summary: Invalid date format
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "Date must be in YYYY-MM-DD format"
+        '404':
+          description: Operations sheet or Master Schedule tab not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                sheetNotFound:
+                  summary: Operations sheet not found
+                  value:
+                    success: false
+                    error:
+                      code: "SHEET_NOT_FOUND"
+                      message: "Operations sheet not found or not accessible"
+                tabNotFound:
+                  summary: Master Schedule tab not found
+                  value:
+                    success: false
+                    error:
+                      code: "TAB_NOT_FOUND"
+                      message: "Master Schedule tab not found in the specified sheet"
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      summary: Update Game in Master Schedule
+      description: |
+        Updates specific fields of a game in the "Master Schedule" tab by identifying the game using date, location, and time.
+        
+        This endpoint allows for real-time updates during tournaments:
+        - **Live score updates** (t1Score, t2Score)
+        - **Actual start time tracking** (actualStartTime) 
+        - **Operational comments** (comments)
+        - **Team changes** (team1, team2)
+        - **Game metadata** (division, game number)
+        
+        The game is identified using the unique combination of date + location + time.
+        Only the specified fields in the `updates` object will be modified.
+        
+        **Cache Invalidation**: Successfully updating a game will clear related cache entries to ensure fresh data on subsequent reads.
+      operationId: updateScheduleGame
+      parameters:
+        - name: sheetId
+          in: path
+          required: true
+          description: The Google Sheets ID of the Operations Sheet
+          schema:
+            type: string
+          example: "1abc123def456ghi789jkl012mno345pqr678stu901vwx234yz"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - date
+                - location
+                - time
+                - updates
+              properties:
+                date:
+                  type: string
+                  format: date
+                  description: Date of the game (YYYY-MM-DD format)
+                  example: "2025-12-12"
+                location:
+                  type: string
+                  description: Location/venue of the game (must match exactly)
+                  example: "Pool 1: Gate"
+                time:
+                  type: string
+                  description: Scheduled time of the game (must match exactly)
+                  example: "9:00:00 AM"
+                updates:
+                  type: object
+                  description: Fields to update with their new values
+                  additionalProperties: false
+                  properties:
+                    t1Score:
+                      type: string
+                      description: Team 1 score
+                      example: "12"
+                    t2Score:
+                      type: string
+                      description: Team 2 score
+                      example: "8"
+                    comments:
+                      type: string
+                      description: Game comments or notes
+                      example: "Game completed successfully"
+                    actualStartTime:
+                      type: string
+                      description: Actual game start time
+                      example: "9:05:00 AM"
+                    team1:
+                      type: string
+                      description: Team 1 name
+                      example: "Orlando Thunder 16U Boys"
+                    team2:
+                      type: string
+                      description: Team 2 name
+                      example: "Navy AC 16U Boys"
+                    division:
+                      type: string
+                      description: Division/category
+                      example: "16U Boys"
+                    game:
+                      type: string
+                      description: Game number or identifier
+                      example: "42"
+            examples:
+              scoreUpdate:
+                summary: Update game scores
+                value:
+                  date: "2025-12-12"
+                  location: "Pool 1: Gate"
+                  time: "9:00:00 AM"
+                  updates:
+                    t1Score: "15"
+                    t2Score: "12"
+                    actualStartTime: "9:03:00 AM"
+                    comments: "Competitive match, Team 1 victory"
+              teamChange:
+                summary: Update team information
+                value:
+                  date: "2025-12-12"
+                  location: "Pool 2: Middle"
+                  time: "10:30:00 AM"
+                  updates:
+                    team2: "Substitute Team B"
+                    comments: "Team substitution due to injury"
+      responses:
+        '200':
+          description: Game updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Game updated successfully"
+                  data:
+                    type: object
+                    properties:
+                      sheetId:
+                        type: string
+                        example: "1abc123def456ghi789jkl012mno345pqr678stu901vwx234yz"
+                      date:
+                        type: string
+                        format: date
+                        example: "2025-12-12"
+                      location:
+                        type: string
+                        example: "Pool 1: Gate"
+                      time:
+                        type: string
+                        example: "9:00:00 AM"
+                      updatedFields:
+                        type: object
+                        description: Fields that were actually changed with before/after values
+                        additionalProperties:
+                          type: object
+                          properties:
+                            from:
+                              type: string
+                              description: Previous value
+                            to:
+                              type: string
+                              description: New value
+                        example:
+                          t1Score:
+                            from: ""
+                            to: "15"
+                          t2Score:
+                            from: ""
+                            to: "12"
+              examples:
+                successfulUpdate:
+                  summary: Successful game update
+                  value:
+                    success: true
+                    message: "Game updated successfully"
+                    data:
+                      sheetId: "1abc123def456ghi789jkl012mno345pqr678stu901vwx234yz"
+                      date: "2025-12-12"
+                      location: "Pool 1: Gate"
+                      time: "9:00:00 AM"
+                      updatedFields:
+                        t1Score:
+                          from: ""
+                          to: "15"
+                        actualStartTime:
+                          from: ""
+                          to: "9:03:00 AM"
+                noChangesNeeded:
+                  summary: No changes were necessary
+                  value:
+                    success: true
+                    message: "No changes were necessary - all values were already up to date"
+                    data:
+                      sheetId: "1abc123def456ghi789jkl012mno345pqr678stu901vwx234yz"
+                      date: "2025-12-12"
+                      location: "Pool 1: Gate"
+                      time: "9:00:00 AM"
+                      updatedFields: {}
+        '400':
+          description: Bad Request - Invalid parameters or update fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                missingFields:
+                  summary: Missing required fields
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "date, location, time, and updates fields are required"
+                invalidDateFormat:
+                  summary: Invalid date format
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_REQUEST"
+                      message: "Date must be in YYYY-MM-DD format"
+                invalidFields:
+                  summary: Invalid update fields
+                  value:
+                    success: false
+                    error:
+                      code: "INVALID_FIELDS"
+                      message: "Invalid update fields: invalidField. Allowed fields: t1Score, t2Score, comments, actualStartTime, team1, team2, division, game"
+        '404':
+          description: Game, sheet, or tab not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                gameNotFound:
+                  summary: Game not found
+                  value:
+                    success: false
+                    error:
+                      code: "GAME_NOT_FOUND"
+                      message: "No game found for date: 2025-12-12, location: Pool 1: Gate, time: 9:00:00 AM"
+                sheetNotFound:
+                  summary: Operations sheet not found
+                  value:
+                    success: false
+                    error:
+                      code: "SHEET_NOT_FOUND"
+                      message: "Operations sheet not found or not accessible"
+                tabNotFound:
+                  summary: Master Schedule tab not found
+                  value:
+                    success: false
+                    error:
+                      code: "TAB_NOT_FOUND"
+                      message: "Master Schedule tab not found in the specified sheet"
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Event:
+      type: object
+      description: A single event from the File Cabinet
+      properties:
+        eventName:
+          type: string
+          description: Display name of the event
+          example: "2026 SoCal Futures League"
+        eventLink:
+          type: string
+          description: URL to the event's spreadsheet
+          example: "https://docs.google.com/spreadsheets/d/1abc123..."
+        startDate:
+          type: string
+          format: date
+          description: Event start date in YYYY-MM-DD format
+          example: "2026-01-15"
+        endDate:
+          type: string
+          format: date
+          description: Event end date in YYYY-MM-DD format
+          example: "2026-05-31"
+        status:
+          type: string
+          enum: [past, current, future]
+          description: Event status relative to today
+          example: "future"
+      required:
+        - eventName
+        - eventLink
+        - startDate
+        - endDate
+        - status
+
+    ResponseMeta:
+      type: object
+      description: Metadata about the response
+      properties:
+        tab:
+          type: string
+          description: The spreadsheet tab that was queried
+          example: "Leagues"
+        dateFilter:
+          type: string
+          enum: [all, current, future]
+          description: The date filter that was applied
+          example: "future"
+        count:
+          type: integer
+          description: Number of events returned
+          example: 1
+      required:
+        - tab
+        - dateFilter
+        - count
+
+    Error:
+      type: object
+      description: Error response format
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [INVALID_REQUEST, NOT_FOUND, SERVICE_ERROR]
+              description: Error code
+              example: "INVALID_REQUEST"
+            message:
+              type: string
+              description: Human-readable error message
+              example: "Missing required query parameter: tab"
+          required:
+            - code
+            - message
+      required:
+        - success
+        - error
+
+    SiteInfoRecord:
+      type: object
+      description: A single site info record from the Operations Sheet
+      properties:
+        channel:
+          type: string
+          description: Channel identifier (e.g., CH1, CH2, CH3)
+          example: "CH1"
+        computer:
+          type: string
+          description: Computer/equipment identifier
+          example: "GD08"
+        date:
+          type: string
+          description: Original date string from the sheet
+          example: "12/12/2025"
+        parsedDate:
+          type: string
+          format: date-time
+          description: Parsed date in ISO 8601 format
+          nullable: true
+          example: "2025-12-12T00:00:00.000Z"
+        singular:
+          type: string
+          description: Singular.live control URL
+          example: "https://app.singular.live/control/7H4PpuMu33VcGeEUorbQml"
+        facility:
+          type: string
+          description: Location/facility description
+          example: "Pool 1: Gate"
+        division:
+          type: string
+          description: Division information (often empty)
+          example: ""
+        staff:
+          type: string
+          description: Staff member assigned
+          example: "Amelia Stringham"
+        rstGameStart:
+          type: string
+          description: First game start time
+          example: "8:10:00 AM"
+        lastGameEndLastGameStart1Hr:
+          type: string
+          description: Last game end time (Last Game Start + 1 HR)
+          example: "8:50:00 PM"
+        siteMap:
+          type: string
+          description: Site map reference (often empty)
+          example: ""
+        internet:
+          type: string
+          description: Internet availability (often empty)
+          example: ""
+        ethernetInfo:
+          type: string
+          description: Ethernet connection details (often empty)
+          example: ""
+        wifiUsername:
+          type: string
+          description: WiFi username (often empty)
+          example: ""
+        wifiPassword:
+          type: string
+          description: WiFi password (often empty)
+          example: ""
+        jumpAvailable:
+          type: string
+          description: Jump/backup availability (often empty)
+          example: ""
+        zixiIngest:
+          type: string
+          description: Zixi streaming ingest info (often empty)
+          example: ""
+
+    ScheduleGame:
+      type: object
+      description: A single game from the Operations Sheet master schedule
+      properties:
+        gameNumber:
+          type: string
+          description: Unique identifier for the game
+          example: "1"
+        division:
+          type: string
+          description: Division of the teams playing
+          example: "10U"
+        time:
+          type: string
+          format: date-time
+          description: Scheduled start time of the game
+          example: "2025-12-12T08:00:00"
+        field:
+          type: string
+          description: Field or location where the game is played
+          example: "Field 1"
+        team1:
+          type: string
+          description: First team playing in the game
+          example: "Team A"
+        team2:
+          type: string
+          description: Second team playing in the game
+          example: "Team B"
+        score1:
+          type: integer
+          description: Score of the first team (if available)
+          example: 3
+        score2:
+          type: integer
+          description: Score of the second team (if available)
+          example: 2
+        comments:
+          type: string
+          description: Additional comments or information about the game
+          example: "Bring your own chairs"
+        bracket:
+          type: string
+          description: Tournament bracket information (if applicable)
+          example: "Winners Bracket"
+        actualStartTime:
+          type: string
+          format: date-time
+          description: Actual start time of the game for operational tracking
+          example: "2025-12-12T08:05:00"
+
+tags:
+  - name: Events
+    description: Operations related to File Cabinet events
+  - name: Health
+    description: Health check operations
+  - name: Operations
+    description: Operations related to the Operations Sheet

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GOLS UI Widget</title>
+  
+  <!-- External Dependencies -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Oswald:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  
+  <!-- Widget Styles -->
+  <link rel="stylesheet" href="src/styles/main.css">
+  <link rel="stylesheet" href="src/styles/components.css">
+  <link rel="stylesheet" href="src/styles/game-info.css">
+  <link rel="stylesheet" href="src/styles/compact.css">
+  <link rel="stylesheet" href="src/styles/file-cabinet.css">
+  
+  <style>
+    /* Container styles for widget embedding */
+    body {
+      margin: 0;
+      padding: 20px;
+      background-color: #f0f0f0;
+      font-family: 'Roboto', Arial, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    
+    #widget-container {
+      width: 450px;
+      height: 380px;
+      position: relative;
+      overflow: hidden;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+<body>
+  <!-- GOLS Widget Container -->
+  <div id="widget-container">
+    <div id="gols-widget">
+      <!-- Widget content will be populated by JavaScript -->
+      <div class="gols-loading">
+        <i class="fas fa-spinner fa-spin"></i>
+        <span>Loading GOLS Widget...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Widget JavaScript -->
+  <script src="src/js/file-cabinet-api.js"></script>
+  <script src="src/js/mock-services.js"></script>
+  <script src="src/js/demo-data.js"></script>
+  <script src="src/js/ui-manager.js"></script>
+  <script src="src/js/main.js"></script>
+</body>
+</html>

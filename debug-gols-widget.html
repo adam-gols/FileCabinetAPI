@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GOLS Widget Debug Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            max-height: 300px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>GOLS Widget Debug Test</h1>
+    <p>This page tests the File Cabinet API integration directly.</p>
+    
+    <button onclick="testFileCabinetAPI()">Test File Cabinet API Service</button>
+    <button onclick="testSpecificTab()">Test Specific Tab (2026 OPS SHEET LINKS)</button>
+    
+    <div id="results"></div>
+
+    <script>
+        function addResult(title, status, message, data = null) {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${status}`;
+            
+            let content = `<h3>${title}</h3><p>${message}</p>`;
+            if (data) {
+                content += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            }
+            
+            resultDiv.innerHTML = content;
+            resultsDiv.appendChild(resultDiv);
+            resultDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        async function testFileCabinetAPI() {
+            addResult('File Cabinet API Service Test', 'loading', 'Initializing FileCabinetAPIService...');
+            
+            try {
+                // Create the FileCabinetAPIService (simulating what the widget does)
+                class TestFileCabinetAPIService {
+                    constructor() {
+                        this.baseUrl = 'https://file-cabinet-api-s3afg2f2mq-uc.a.run.app';
+                        this.cache = new Map();
+                        this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
+                    }
+
+                    async getEvents(tabName = '2026 OPS SHEET LINKS', dateFilter = 'future') {
+                        try {
+                            const url = new URL(`${this.baseUrl}/file-cabinet`);
+                            url.searchParams.set('tab', tabName);
+                            if (dateFilter !== 'all') {
+                                url.searchParams.set('dateFilter', dateFilter);
+                            }
+
+                            console.log(`Fetching events from: ${url.toString()}`);
+                            
+                            const response = await fetch(url.toString(), {
+                                method: 'GET',
+                                headers: {
+                                    'Accept': 'application/json',
+                                },
+                            });
+                            
+                            if (!response.ok) {
+                                const errorText = await response.text();
+                                throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+                            }
+                            
+                            const data = await response.json();
+                            
+                            if (!data.success) {
+                                throw new Error(`API Error: ${data.error?.message || 'Unknown error'}`);
+                            }
+                            
+                            return data.data || [];
+                        } catch (error) {
+                            console.error('Failed to fetch File Cabinet events:', error);
+                            throw error;
+                        }
+                    }
+
+                    convertEventsToUIFormat(fileCabinetEvents) {
+                        if (!Array.isArray(fileCabinetEvents)) {
+                            console.warn('Expected array of events, got:', fileCabinetEvents);
+                            return [];
+                        }
+
+                        return fileCabinetEvents.map(event => ({
+                            id: `fc-${event.eventName.replace(/\\s+/g, '-').toLowerCase()}-${event.startDate}`,
+                            name: event.eventName,
+                            startDate: event.startDate,
+                            endDate: event.endDate,
+                            location: 'TBD',
+                            eventLink: event.eventLink,
+                            status: event.status,
+                            games: []
+                        }));
+                    }
+                }
+                
+                const fileCabinetAPI = new TestFileCabinetAPIService();
+                
+                // Test fetching events
+                const rawEvents = await fileCabinetAPI.getEvents();
+                addResult('Raw Events Fetched', 'success', 
+                    `Successfully fetched ${rawEvents.length} events from File Cabinet API`, rawEvents);
+                
+                // Test converting to UI format
+                const uiEvents = fileCabinetAPI.convertEventsToUIFormat(rawEvents);
+                addResult('UI Format Conversion', 'success', 
+                    `Successfully converted ${uiEvents.length} events to UI format`, uiEvents);
+                
+            } catch (error) {
+                addResult('File Cabinet API Service Test', 'error', 
+                    `Error: ${error.message}`, { error: error.toString(), stack: error.stack });
+            }
+        }
+        
+        async function testSpecificTab() {
+            addResult('Direct API Call Test', 'loading', 'Testing direct API call to specific tab...');
+            
+            try {
+                const response = await fetch('https://file-cabinet-api-s3afg2f2mq-uc.a.run.app/file-cabinet?tab=2026%20OPS%20SHEET%20LINKS');
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    addResult('Direct API Call Test', 'success', 
+                        `Successfully fetched data from 2026 OPS SHEET LINKS tab`, data);
+                } else {
+                    addResult('Direct API Call Test', 'error', 
+                        `API call failed: ${data.error?.message || 'Unknown error'}`, data);
+                }
+            } catch (error) {
+                addResult('Direct API Call Test', 'error', 
+                    `Network error: ${error.message}`);
+            }
+        }
+        
+        // Auto-run tests on page load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                testSpecificTab();
+                setTimeout(() => testFileCabinetAPI(), 1000);
+            }, 500);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CORS Test for File Cabinet API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .loading {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>File Cabinet API CORS Test</h1>
+    <p>This page tests CORS functionality for the File Cabinet API from a browser context.</p>
+    
+    <button onclick="testHealthEndpoint()">Test Health Endpoint</button>
+    <button onclick="testTabsEndpoint()">Test Tabs Endpoint</button>
+    <button onclick="testFileCabinetEndpoint()">Test File Cabinet Endpoint</button>
+    
+    <div id="results"></div>
+
+    <script>
+        const API_BASE_URL = 'https://file-cabinet-api-s3afg2f2mq-uc.a.run.app';
+        
+        function addResult(title, status, message, data = null) {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${status}`;
+            
+            let content = `<h3>${title}</h3><p>${message}</p>`;
+            if (data) {
+                content += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            }
+            
+            resultDiv.innerHTML = content;
+            resultsDiv.appendChild(resultDiv);
+            resultDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        async function testHealthEndpoint() {
+            addResult('Health Endpoint Test', 'loading', 'Testing /health endpoint...');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    addResult('Health Endpoint Test', 'success', 
+                        `✅ Health endpoint working! Status: ${response.status}`, data);
+                } else {
+                    addResult('Health Endpoint Test', 'error', 
+                        `❌ Health endpoint failed with status: ${response.status}`, data);
+                }
+            } catch (error) {
+                addResult('Health Endpoint Test', 'error', 
+                    `❌ CORS Error or Network Error: ${error.message}`);
+            }
+        }
+        
+        async function testTabsEndpoint() {
+            addResult('Tabs Endpoint Test', 'loading', 'Testing /tabs endpoint...');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/tabs`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    addResult('Tabs Endpoint Test', 'success', 
+                        `✅ Tabs endpoint working! Status: ${response.status}`, data);
+                } else {
+                    addResult('Tabs Endpoint Test', 'error', 
+                        `❌ Tabs endpoint failed with status: ${response.status}`, data);
+                }
+            } catch (error) {
+                addResult('Tabs Endpoint Test', 'error', 
+                    `❌ CORS Error or Network Error: ${error.message}`);
+            }
+        }
+        
+        async function testFileCabinetEndpoint() {
+            addResult('File Cabinet Endpoint Test', 'loading', 'Testing /file-cabinet endpoint...');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/file-cabinet?tab=Test`);
+                const data = await response.json();
+                
+                if (response.status === 200) {
+                    addResult('File Cabinet Endpoint Test', 'success', 
+                        `✅ File Cabinet endpoint working! Status: ${response.status}`, data);
+                } else if (response.status === 404) {
+                    addResult('File Cabinet Endpoint Test', 'success', 
+                        `✅ File Cabinet endpoint accessible (404 expected for "Test" tab)! Status: ${response.status}`, data);
+                } else {
+                    addResult('File Cabinet Endpoint Test', 'error', 
+                        `❌ File Cabinet endpoint failed with status: ${response.status}`, data);
+                }
+            } catch (error) {
+                addResult('File Cabinet Endpoint Test', 'error', 
+                    `❌ CORS Error or Network Error: ${error.message}`);
+            }
+        }
+        
+        // Auto-run tests on page load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                testHealthEndpoint();
+                setTimeout(() => testTabsEndpoint(), 1000);
+                setTimeout(() => testFileCabinetEndpoint(), 2000);
+            }, 500);
+        });
+    </script>
+</body>
+</html>
