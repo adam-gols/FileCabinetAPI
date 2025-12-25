@@ -557,6 +557,15 @@ class UIManager {
       return;
     }
     
+    // Show confirmation popup for "Save & Next Game" (direction > 0)
+    if (direction > 0) {
+      const confirmed = await this.showSaveAndNextConfirmation();
+      if (!confirmed) {
+        console.log('🚫 User cancelled Save & Next Game');
+        return; // Stay on current game
+      }
+    }
+    
     // Save any changes to current game before navigating
     try {
       await this.saveCurrentGameChanges();
@@ -1530,6 +1539,112 @@ class UIManager {
 
     // Send to Singular Live
     await this.sendToSingularLive(gameData);
+  }
+
+  /**
+   * Show Save & Next Game confirmation popup
+   */
+  showSaveAndNextConfirmation() {
+    return new Promise((resolve) => {
+      // Create overlay
+      const overlay = document.createElement('div');
+      overlay.className = 'gols-save-next-overlay';
+      
+      // Create popup container
+      const popup = document.createElement('div');
+      popup.className = 'gols-save-next-popup';
+      
+      // Create header section
+      const header = document.createElement('div');
+      header.className = 'gols-save-next-header';
+      
+      const icon = document.createElement('div');
+      icon.className = 'gols-save-next-icon';
+      icon.innerHTML = '<i class="fas fa-gamepad"></i>';
+      
+      const title = document.createElement('h3');
+      title.className = 'gols-save-next-title';
+      title.textContent = 'Save & Next Game';
+      
+      const subtitle = document.createElement('p');
+      subtitle.className = 'gols-save-next-subtitle';
+      subtitle.textContent = 'This will save any changes to the current game and move to the next game.';
+      
+      header.appendChild(icon);
+      header.appendChild(title);
+      header.appendChild(subtitle);
+      
+      // Create question
+      const question = document.createElement('p');
+      question.className = 'gols-save-next-question';
+      question.textContent = 'Do you want to continue?';
+      
+      // Create buttons container
+      const buttonsContainer = document.createElement('div');
+      buttonsContainer.className = 'gols-save-next-buttons';
+      
+      // Create Cancel button
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'gols-save-next-btn-cancel';
+      cancelBtn.textContent = 'CANCEL';
+      
+      // Create Confirm button  
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'gols-save-next-btn-confirm';
+      confirmBtn.textContent = 'SAVE & NEXT GAME';
+      
+      buttonsContainer.appendChild(cancelBtn);
+      buttonsContainer.appendChild(confirmBtn);
+      
+      // Assemble popup
+      popup.appendChild(header);
+      popup.appendChild(question);
+      popup.appendChild(buttonsContainer);
+      overlay.appendChild(popup);
+      
+      // Add to widget container to ensure proper constraints
+      const widgetContainer = document.getElementById('gols-widget');
+      if (widgetContainer) {
+        widgetContainer.appendChild(overlay);
+      } else {
+        document.body.appendChild(overlay);
+      }
+      
+      // Event handlers
+      const cleanup = () => {
+        if (overlay && overlay.parentNode) {
+          overlay.parentNode.removeChild(overlay);
+        }
+      };
+      
+      cancelBtn.addEventListener('click', () => {
+        cleanup();
+        resolve(false);
+      });
+      
+      confirmBtn.addEventListener('click', () => {
+        cleanup();
+        resolve(true);
+      });
+      
+      // Allow ESC to cancel
+      const handleEscape = (e) => {
+        if (e.key === 'Escape') {
+          cleanup();
+          document.removeEventListener('keydown', handleEscape);
+          resolve(false);
+        }
+      };
+      document.addEventListener('keydown', handleEscape);
+      
+      // Allow clicking overlay to cancel
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          cleanup();
+          resolve(false);
+        }
+      });
+    });
   }
 }
 
