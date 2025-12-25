@@ -126,8 +126,9 @@ class FileCabinetAPIService {
    * Format: "Start Date - End Date: Event Name"
    */
   formatEventForDropdown(event) {
-    const startDate = event.startDate ? new Date(event.startDate).toLocaleDateString() : '';
-    const endDate = event.endDate ? new Date(event.endDate).toLocaleDateString() : '';
+    // Add time component to avoid timezone conversion issues
+    const startDate = event.startDate ? new Date(event.startDate + 'T12:00:00').toLocaleDateString() : '';
+    const endDate = event.endDate ? new Date(event.endDate + 'T12:00:00').toLocaleDateString() : '';
     
     let dateRange = startDate;
     if (endDate && endDate !== startDate) {
@@ -220,12 +221,8 @@ class FileCabinetAPIService {
         return site.date && site.facility && site.computer;
       })
       .map(site => {
-        // Format the date for display
-        let displayDate = site.date;
-        if (site.parsedDate) {
-          const date = new Date(site.parsedDate);
-          displayDate = date.toLocaleDateString();
-        }
+        // Use the original date format to avoid timezone conversion issues
+        const displayDate = site.date;
 
         return {
           id: `${site.date}-${site.facility}-${site.computer}`.replace(/\s+/g, '-').toLowerCase(),
