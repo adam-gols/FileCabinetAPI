@@ -81,12 +81,27 @@ class OBSWebSocketService {
         this.websocket = new WebSocket(wsUrl);
         
         this.websocket.onopen = () => {
-          console.log('📹 Connected to OBS WebSocket');
-          this.authenticate().then(resolve).catch(() => resolve(false));
+          console.log('📹 WebSocket connection opened');
+          // Don't set connected immediately - wait for Hello message
         };
 
         this.websocket.onmessage = (event) => {
-          this.handleMessage(JSON.parse(event.data));
+          const message = JSON.parse(event.data);
+          
+          // Handle Hello message (opcode 0)
+          if (message.op === 0) {
+            console.log('📹 Received Hello from OBS, sending Identify...');
+            this.sendIdentify().then(() => {
+              this.isConnected = true;
+              console.log('📹 Successfully connected and identified with OBS');
+              resolve(true);
+            }).catch((error) => {
+              console.error('📹 Failed to identify with OBS:', error);
+              resolve(false);
+            });
+          } else {
+            this.handleMessage(message);
+          }
         };
 
         this.websocket.onclose = () => {
@@ -120,28 +135,13 @@ class OBSWebSocketService {
   }
 
   /**
-   * Authenticate with OBS WebSocket
+   * Authenticate with OBS WebSocket (simplified for v5.x)
    */
   async authenticate() {
-    return new Promise((resolve) => {
-      // First, get authentication info
-      this.sendRequest('GetAuthRequired').then((response) => {
-        if (!response.authRequired) {
-          console.log('📹 OBS authentication not required');
-          this.isConnected = true;
-          resolve(true);
-        } else {
-          console.log('📹 OBS authentication required');
-          // For simplicity, we'll assume no auth for now
-          // In production, you'd implement proper authentication with password
-          this.isConnected = true;
-          resolve(true);
-        }
-      }).catch((error) => {
-        console.error('📹 OBS authentication failed:', error);
-        resolve(false);
-      });
-    });
+    // In OBS WebSocket v5.x, authentication is handled during the Identify handshake
+    // This method is kept for compatibility but doesn't need to do much
+    console.log('📹 Authentication handled during Identify handshake');
+    return true;
   }
 
   /**
@@ -149,16 +149,21 @@ class OBSWebSocketService {
    */
   sendRequest(requestType, requestData = {}) {
     return new Promise((resolve, reject) => {
-      if (!this.websocket || !this.isConnected) {
-        reject(new Error('Not connected to OBS'));
+      if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket not connected'));
         return;
       }
 
       const messageId = (++this.messageId).toString();
+      
+      // OBS WebSocket v5.x format
       const message = {
-        'request-type': requestType,
-        'message-id': messageId,
-        ...requestData
+        op: 6, // Request opcode
+        d: {
+          requestType: requestType,
+          requestId: messageId,
+          requestData: requestData
+        }
       };
 
       this.pendingRequests.set(messageId, { resolve, reject });
@@ -175,18 +180,83 @@ class OBSWebSocketService {
   }
 
   /**
+   * Send Identify message to OBS WebSocket v5.x
+   */
+  async sendIdentify() {
+    return new Promise((resolve, reject) => {
+      const identifyMessage = {
+        op: 1, // Identify opcode
+        d: {
+          rpcVersion: 1,
+          eventSubscriptions: 33, // General + Config + Scenes + Inputs + Outputs
+        }
+      };
+      
+      // Add authentication if password is provided
+      if (this.password) {
+        // For now, we'll skip authentication implementation
+        // In production, implement proper challenge-response auth
+        console.log('📹 Password authentication not yet implemented');
+      }
+      
+      this.websocket.send(JSON.stringify(identifyMessage));
+      
+      // Wait for Identified response (opcode 2)
+      const originalHandler = this.handleMessage.bind(this);
+      this.handleMessage = (message) => {
+        if (message.op === 2) {
+          console.log('📹 Received Identified response');
+          this.handleMessage = originalHandler;
+          resolve(true);
+        } else {
+          originalHandler(message);
+        }
+      };
+      
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        this.handleMessage = originalHandler;
+        reject(new Error('Identify timeout'));
+      }, 5000);
+    });
+  }
+
+  /**
    * Handle incoming WebSocket messages
    */
   handleMessage(message) {
-    if (message['message-id'] && this.pendingRequests.has(message['message-id'])) {
-      const { resolve, reject } = this.pendingRequests.get(message['message-id']);
-      this.pendingRequests.delete(message['message-id']);
+    console.log('📹 Received OBS message:', message);
+    
+    // Handle different message types based on opcode
+    switch (message.op) {
+      case 0: // Hello message
+        console.log('📹 Received Hello from OBS');
+        break;
+        
+      case 2: // Identify response
+        console.log('📹 Identified with OBS');
+        break;
+        
+      case 7: // RequestResponse
+        if (message.d && message.d.requestId && this.pendingRequests.has(message.d.requestId)) {
+          const { resolve, reject } = this.pendingRequests.get(message.d.requestId);
+          this.pendingRequests.delete(message.d.requestId);
 
-      if (message.status === 'ok') {
-        resolve(message);
-      } else {
-        reject(new Error(message.error || 'Unknown error'));
-      }
+          if (message.d.requestStatus && message.d.requestStatus.result) {
+            resolve(message.d.responseData || {});
+          } else {
+            const error = message.d.requestStatus?.comment || 'Unknown error';
+            reject(new Error(error));
+          }
+        }
+        break;
+        
+      case 5: // Event
+        console.log('📹 OBS Event:', message.d);
+        break;
+        
+      default:
+        console.log('📹 Unknown OBS message type:', message.op);
     }
   }
 
@@ -195,8 +265,8 @@ class OBSWebSocketService {
    */
   async isRecording() {
     try {
-      const response = await this.sendRequest('GetRecordingStatus');
-      return response.isRecording || false;
+      const response = await this.sendRequest('GetRecordStatus');
+      return response.outputActive || false;
     } catch (error) {
       console.error('📹 Failed to get recording status:', error);
       return false;
@@ -212,13 +282,16 @@ class OBSWebSocketService {
         throw new Error('Filename is required');
       }
 
-      // Set recording filename
-      await this.sendRequest('SetFilenameFormatting', {
-        'filename-formatting': filename
+      // Set recording filename using profile settings
+      // Note: In OBS v5.x, filename formatting is handled differently
+      await this.sendRequest('SetProfileParameter', {
+        parameterCategory: 'SimpleOutput',
+        parameterName: 'FilenameFormatting',
+        parameterValue: filename
       });
 
       // Start recording
-      await this.sendRequest('StartRecording');
+      await this.sendRequest('StartRecord');
       console.log(`📹 Started recording: ${filename}`);
       return true;
     } catch (error) {
@@ -232,7 +305,7 @@ class OBSWebSocketService {
    */
   async stopRecording() {
     try {
-      await this.sendRequest('StopRecording');
+      await this.sendRequest('StopRecord');
       console.log('📹 Stopped recording');
       return true;
     } catch (error) {
