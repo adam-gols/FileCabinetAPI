@@ -610,8 +610,8 @@ class UIManager {
         'actual-start-time': game.actualStartTime || game.actualStart || 'TBD',
         'team1-name': game.team1 || game.homeTeam || game.team1Name || 'TBD',
         'team2-name': game.team2 || game.awayTeam || game.team2Name || 'TBD',
-        'team1-score': game.t1Score || game.team1Score || game.homeScore || '0.00',
-        'team2-score': game.t2Score || game.team2Score || game.awayScore || '0.00',
+        'team1-score': game.t1Score || game.team1Score || game.homeScore || '0',
+        'team2-score': game.t2Score || game.team2Score || game.awayScore || '0',
         'game-comments': game.comments || game.notes || ''
       };
       
@@ -657,8 +657,8 @@ class UIManager {
       this.setInputValue('actual-start-time', 'TBD');
       this.setInputValue('team1-name', 'Event Selected');
       this.setInputValue('team2-name', 'View Link Below');
-      this.setInputValue('team1-score', '0.00');
-      this.setInputValue('team2-score', '0.00');
+      this.setInputValue('team1-score', '0');
+      this.setInputValue('team2-score', '0');
       
       const comments = this.currentEvent.eventLink 
         ? `Event Link: ${this.currentEvent.eventLink}` 
@@ -706,7 +706,7 @@ class UIManager {
       const field = document.getElementById(fieldId);
       if (field) {
         if (fieldId.includes('score')) {
-          field.value = '0.00';
+          field.value = '0';
         } else if (fieldId === 'game-date') {
           field.value = 'MM/DD/YYYY';
         } else if (fieldId === 'official-start-time' || fieldId === 'actual-start-time') {
@@ -1509,8 +1509,8 @@ class UIManager {
       actualStartTime: document.getElementById('actual-start-time')?.value || 'TBD',
       team1: document.getElementById('team1-name')?.value || 'TBD',
       team2: document.getElementById('team2-name')?.value || 'TBD', 
-      t1Score: document.getElementById('team1-score')?.value || '0.00',
-      t2Score: document.getElementById('team2-score')?.value || '0.00',
+      t1Score: document.getElementById('team1-score')?.value || '0',
+      t2Score: document.getElementById('team2-score')?.value || '0',
       comments: document.getElementById('game-comments')?.value || '',
       
       // Meta information
