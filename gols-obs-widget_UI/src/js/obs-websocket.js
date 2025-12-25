@@ -318,15 +318,25 @@ class OBSWebSocketService {
    * Generate filename for game recording
    */
   generateGameFilename(gameData) {
+    console.log('📹 Generating filename for game data:', gameData);
+    
     const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const sanitize = (str) => str.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
+    const sanitize = (value) => {
+      // Convert to string and sanitize
+      const str = String(value || '').trim();
+      if (!str) return 'Unknown';
+      return str.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
+    };
     
     const eventName = sanitize(gameData.event || 'Event');
     const gameNumber = sanitize(gameData.gameNumber || 'Game');
     const team1 = sanitize(gameData.team1 || 'Team1');
     const team2 = sanitize(gameData.team2 || 'Team2');
     
-    return `${eventName}_${gameNumber}_${team1}_vs_${team2}_${date}`;
+    const filename = `${eventName}_${gameNumber}_${team1}_vs_${team2}_${date}`;
+    console.log('📹 Generated filename:', filename);
+    
+    return filename;
   }
 
   /**
