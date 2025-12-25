@@ -936,12 +936,21 @@ class UIManager {
         const currentValue = element.value || '';
         const originalValue = this.originalGameData[fieldId] || '';
         
-        if (currentValue !== originalValue) {
+        // Special handling for scores: always include "0" scores as changes to ensure they're pushed to spreadsheet
+        const isScoreField = fieldId === 'team1-score' || fieldId === 'team2-score';
+        const shouldIncludeAsChange = currentValue !== originalValue || (isScoreField && currentValue === '0');
+        
+        if (shouldIncludeAsChange) {
           // Map UI field names to API field names
           const apiFieldName = this.mapUIFieldToAPI(fieldId);
           if (apiFieldName) {
             changes[apiFieldName] = currentValue;
             hasChanges = true;
+            
+            // Log when we're including a "0" score specifically
+            if (isScoreField && currentValue === '0') {
+              console.log(`🏆 Including "${currentValue}" score for ${fieldId} (ensuring 0 scores are always updated)`);
+            }
           }
         }
       }
