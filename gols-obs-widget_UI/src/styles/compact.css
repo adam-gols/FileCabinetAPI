@@ -299,7 +299,7 @@ select:focus {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px 8px;
-  padding: 8px;
+  padding: 6px 8px;
   background: white;
 }
 
@@ -342,7 +342,7 @@ select:focus {
 
 /* Teams Section */
 .gols-teams-section {
-  padding: 8px;
+  padding: 6px 8px;
   border-top: 1px solid #ddd;
   background: white;
 }
@@ -395,7 +395,7 @@ select:focus {
 
 /* Comments Section */
 .gols-comments-section {
-  padding: 8px;
+  padding: 6px 8px;
   border-top: 1px solid #ddd;
   background: white;
 }
@@ -406,12 +406,12 @@ select:focus {
   font-weight: 700;
   color: var(--gols-cardinal-red);
   text-transform: uppercase;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
 }
 
 .gols-comments-input {
   width: 100%;
-  height: 20px;
+  height: 18px;
   padding: 2px 4px;
   border: 1px solid #ddd;
   border-radius: 2px;
@@ -430,14 +430,14 @@ select:focus {
 .gols-navigation {
   display: flex;
   gap: 4px;
-  padding: 8px;
+  padding: 6px 8px;
   border-top: 1px solid #ddd;
   background: #f8f8f8;
 }
 
 .gols-nav-btn {
   flex: 1;
-  height: 28px;
+  height: 26px;
   border: none;
   border-radius: 3px;
   background: var(--gols-cardinal-red);
@@ -464,11 +464,11 @@ select:focus {
 
 /* Compact Main Content */
 .gols-compact-main {
-  padding: 8px;
+  padding: 6px 8px;
   height: calc(100% - 30px);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 /* Top Controls Row */
@@ -476,7 +476,7 @@ select:focus {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .gols-event-control,
