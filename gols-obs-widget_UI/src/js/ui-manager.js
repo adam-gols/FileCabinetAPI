@@ -11,6 +11,7 @@ class UIManager {
     this.currentStreams = []; // Store current streams
     this.originalGameData = null; // Store original data for comparison
     this.timezoneOffset = 0; // Hours to add/subtract from local time
+    this.singularToken = ''; // Singular Live data stream token
     this.fileCabinetAPI = new FileCabinetAPIService();
     this.events = []; // Store fetched events
     
@@ -31,6 +32,9 @@ class UIManager {
       
       // Load any saved timezone offset first
       this.loadTimezoneOffset();
+      
+      // Load saved Singular Live token
+      this.loadSingularToken();
       
       // Show timezone confirmation popup before allowing interaction
       console.log('🕐 Showing timezone verification popup...');
@@ -186,6 +190,17 @@ class UIManager {
           
           <div class="gols-settings-content">
             <div class="gols-settings-group">
+              <h4>Singular Live Integration</h4>
+              <label>
+                <span>Data Stream Token:</span>
+                <input type="text" id="singular-token" placeholder="Enter your Singular Live data stream token">
+              </label>
+              <small style="color: #666; font-size: 11px; display: block; margin-top: 4px;">
+                Find your token in the Singular Live Dashboard → Data Stream Manager
+              </small>
+            </div>
+
+            <div class="gols-settings-group">
               <h4>Demo Configuration</h4>
               <label>
                 <input type="checkbox" id="debug-mode"> Debug Mode
@@ -339,6 +354,18 @@ class UIManager {
         input.addEventListener('input', this.handleGameDataChange.bind(this));
       }
     });
+
+    // Settings buttons
+    const saveSettings = document.getElementById('save-settings');
+    const resetSettings = document.getElementById('reset-settings');
+    
+    if (saveSettings) {
+      saveSettings.addEventListener('click', () => this.saveSettings());
+    }
+    
+    if (resetSettings) {
+      resetSettings.addEventListener('click', () => this.resetSettings());
+    }
   }
 
   populateEventSelector() {
@@ -606,6 +633,11 @@ class UIManager {
         this.setFirstGameActualStartTime();
       }
       
+      // Send complete game data to Singular Live after loading new game
+      setTimeout(() => {
+        this.sendCompleteGameDataToSingular();
+      }, 100); // Small delay to ensure UI has updated
+      
     } else if (!this.currentEvent) {
       // No event selected - clear display
       this.originalGameData = null;
@@ -736,9 +768,17 @@ class UIManager {
     
     if (show !== undefined) {
       settingsOverlay.style.display = show ? 'flex' : 'none';
+      if (show) {
+        // Load current settings into UI when showing
+        this.loadSettingsToUI();
+      }
     } else {
       const isVisible = settingsOverlay.style.display !== 'none';
       settingsOverlay.style.display = isVisible ? 'none' : 'flex';
+      if (!isVisible) {
+        // Load current settings into UI when showing
+        this.loadSettingsToUI();
+      }
     }
   }
   
@@ -750,6 +790,9 @@ class UIManager {
         // Visual feedback that changes are pending
         const changedFields = Object.keys(changes).length;
         console.log('📝 Game data changes detected:', changes);
+        
+        // Send complete game data to Singular Live
+        this.sendCompleteGameDataToSingular();
         
         // You could add visual indicators here (e.g., highlight changed fields)
         // For now, just log the changes
@@ -816,8 +859,8 @@ class UIManager {
     // First, try to find the first incomplete game
     const firstIncompleteIndex = games.findIndex(game => {
       // Game is incomplete if it doesn't have final scores for both teams
-      const team1Score = game.team1Score || game.homeScore || '';
-      const team2Score = game.t2Score || game.awayScore || '';
+      const team1Score = game.t1Score || game.team1Score || game.homeScore || '';
+      const team2Score = game.t2Score || game.team2Score || game.awayScore || '';
       
       return !team1Score || !team2Score || team1Score === '' || team2Score === '' || 
              team1Score === '0' && team2Score === '0';
@@ -987,6 +1030,45 @@ class UIManager {
       console.error('❌ Failed to save game changes:', error);
       this.showNotification('error', `Failed to save changes: ${error.message}`);
       return false;
+    }
+  }
+
+  /**
+   * Save settings
+   */
+  saveSettings() {
+    const singularTokenInput = document.getElementById('singular-token');
+    if (singularTokenInput) {
+      this.singularToken = singularTokenInput.value.trim();
+      this.saveSingularToken();
+    }
+    
+    this.showNotification('success', 'Settings saved');
+    this.toggleSettings(false);
+  }
+
+  /**
+   * Reset settings to defaults
+   */
+  resetSettings() {
+    this.singularToken = '';
+    this.saveSingularToken();
+    
+    const singularTokenInput = document.getElementById('singular-token');
+    if (singularTokenInput) {
+      singularTokenInput.value = '';
+    }
+    
+    this.showNotification('info', 'Settings reset to defaults');
+  }
+
+  /**
+   * Load settings into UI
+   */
+  loadSettingsToUI() {
+    const singularTokenInput = document.getElementById('singular-token');
+    if (singularTokenInput) {
+      singularTokenInput.value = this.singularToken;
     }
   }
 
@@ -1336,6 +1418,109 @@ class UIManager {
       const offsetDisplay = offset > 0 ? `+${offset}h` : `${offset}h`;
       previewDiv.innerHTML = `<strong>Adjusted Time: ${adjustedTimeString} (${offsetDisplay}) ${adjustedUTCString}</strong>`;
     }
+  }
+
+  /**
+   * Save Singular Live token to localStorage
+   */
+  saveSingularToken() {
+    try {
+      localStorage.setItem('gols-singular-token', this.singularToken);
+      console.log('💾 Singular Live token saved to localStorage');
+    } catch (error) {
+      console.warn('Failed to save Singular Live token to localStorage:', error);
+    }
+  }
+
+  /**
+   * Load Singular Live token from localStorage
+   */
+  loadSingularToken() {
+    try {
+      const saved = localStorage.getItem('gols-singular-token');
+      if (saved !== null) {
+        this.singularToken = saved;
+        console.log('📡 Loaded saved Singular Live token');
+        return true;
+      }
+    } catch (error) {
+      console.warn('Failed to load Singular Live token from localStorage:', error);
+    }
+    return false;
+  }
+
+  /**
+   * Send game data to Singular Live
+   * @param {object} gameData - The game data to send
+   */
+  async sendToSingularLive(gameData) {
+    if (!this.singularToken || this.singularToken.trim() === '') {
+      console.log('📡 No Singular Live token configured, skipping data send');
+      return;
+    }
+
+    try {
+      const response = await fetch(`https://datastream.singular.live/datastreams/${this.singularToken}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(gameData)
+      });
+
+      if (response.ok) {
+        console.log('📡 Successfully sent data to Singular Live:', gameData);
+        this.showNotification('success', 'Data sent to Singular Live');
+      } else {
+        console.error('❌ Failed to send data to Singular Live:', response.status, response.statusText);
+        this.showNotification('error', `Singular Live error: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('❌ Error sending data to Singular Live:', error);
+      this.showNotification('error', 'Failed to send data to Singular Live');
+    }
+  }
+
+  /**
+   * Send complete game data to Singular Live whenever fields change
+   */
+  async sendCompleteGameDataToSingular() {
+    if (!this.currentSchedule || !this.currentSchedule.games || this.currentGameIndex < 0) {
+      return;
+    }
+
+    const currentGame = this.currentSchedule.games[this.currentGameIndex];
+    if (!currentGame) {
+      return;
+    }
+
+    // Build complete game data object using same field names as File Cabinet API
+    const gameData = {
+      // Date and location info
+      date: currentGame.date || this.currentSchedule.date || '',
+      location: currentGame.location || this.currentSchedule.location || '',
+      
+      // Game details
+      gameNumber: currentGame.gameNumber || currentGame.game || `Game ${this.currentGameIndex + 1}`,
+      time: currentGame.time || currentGame.officialStart || currentGame.startTime || 'TBD',
+      division: currentGame.division || currentGame.league || 'TBD',
+      
+      // Get current values from UI (these might have been edited)
+      actualStartTime: document.getElementById('actual-start-time')?.value || 'TBD',
+      team1: document.getElementById('team1-name')?.value || 'TBD',
+      team2: document.getElementById('team2-name')?.value || 'TBD', 
+      t1Score: document.getElementById('team1-score')?.value || '0.00',
+      t2Score: document.getElementById('team2-score')?.value || '0.00',
+      comments: document.getElementById('game-comments')?.value || '',
+      
+      // Meta information
+      eventName: this.currentEvent?.name || 'Unknown Event',
+      currentGameIndex: this.currentGameIndex,
+      totalGames: this.currentSchedule.games.length
+    };
+
+    // Send to Singular Live
+    await this.sendToSingularLive(gameData);
   }
 }
 

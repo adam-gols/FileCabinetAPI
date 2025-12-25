@@ -1111,14 +1111,36 @@ select:focus {
 
 .gols-settings-group label {
   display: block;
-  font-size: 11px;
-  color: #666;
-  margin-bottom: 6px;
-  cursor: pointer;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--gols-zodiac-blue);
 }
 
-.gols-settings-group input[type="checkbox"] {
-  margin-right: 6px;
+.gols-settings-group label span {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.gols-settings-group input[type="text"] {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--gols-gallery-grey);
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: inherit;
+}
+
+.gols-settings-group input[type="text"]:focus {
+  outline: none;
+  border-color: var(--gols-cardinal-red);
+  box-shadow: 0 0 0 2px rgba(198, 33, 40, 0.1);
+}
+
+.gols-settings-group + .gols-settings-group {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gols-gallery-grey);
 }
 
 .gols-settings-btn {
