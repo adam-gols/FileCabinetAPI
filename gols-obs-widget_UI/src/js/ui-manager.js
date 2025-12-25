@@ -13,6 +13,7 @@ class UIManager {
     this.timezoneOffset = 0; // Hours to add/subtract from local time
     this.singularToken = ''; // Singular Live data stream token
     this.fileCabinetAPI = new FileCabinetAPIService();
+    this.obsWebSocket = new OBSWebSocketService(); // OBS WebSocket integration
     this.events = []; // Store fetched events
     
     console.log('UIManager created - will load original UI structure with File Cabinet integration');
@@ -197,6 +198,31 @@ class UIManager {
               </label>
               <small style="color: #666; font-size: 11px; display: block; margin-top: 4px;">
                 Find your token in the Singular Live Dashboard → Data Stream Manager
+              </small>
+            </div>
+
+            <div class="gols-settings-group">
+              <h4>OBS Studio Integration</h4>
+              <label>
+                <input type="checkbox" id="obs-enabled"> Enable OBS Recording Control
+              </label>
+              <small style="color: #666; font-size: 11px; display: block; margin-top: 4px;">
+                Automatically manage OBS recordings when navigating between games
+              </small>
+              <label>
+                <span>WebSocket Host:</span>
+                <input type="text" id="obs-host" placeholder="localhost" value="localhost">
+              </label>
+              <label>
+                <span>WebSocket Port:</span>
+                <input type="number" id="obs-port" placeholder="4455" value="4455" min="1" max="65535">
+              </label>
+              <label>
+                <span>Password (optional):</span>
+                <input type="password" id="obs-password" placeholder="Leave blank if no password">
+              </label>
+              <small style="color: #666; font-size: 11px; display: block; margin-top: 4px;">
+                Requires OBS Studio with WebSocket plugin. Default port is 4455.
               </small>
             </div>
 
@@ -579,10 +605,13 @@ class UIManager {
       this.currentGameIndex = newIndex;
       this.updateGameDisplay();
       
-      // If moving to next game (direction > 0), set actual start time to current time
+      // If moving to next game (direction > 0), handle OBS recording transition
       if (direction > 0) {
         const currentTime = this.getCurrentLocalTime();
         this.setInputValue('actual-start-time', currentTime);
+        
+        // Handle OBS recording transition for new game
+        await this.handleOBSRecordingTransition();
         
         // Update the stored original data so it's considered a "change" that will be saved
         if (this.originalGameData) {
@@ -600,6 +629,66 @@ class UIManager {
       const gameNum = newIndex + 1;
       const totalGames = this.currentSchedule.games.length;
       this.showNotification('info', `${actionText} loaded (${gameNum} of ${totalGames})`);
+    }
+  }
+
+  /**
+   * Handle OBS recording transition for new game
+   */
+  async handleOBSRecordingTransition() {
+    if (!this.obsWebSocket.enabled) {
+      return;
+    }
+    
+    try {
+      // Get current game data for filename generation
+      const currentGame = this.currentSchedule.games[this.currentGameIndex];
+      if (!currentGame) {
+        console.warn('📹 No current game data for OBS recording');
+        return;
+      }
+      
+      // Prepare game data for OBS filename generation
+      const gameData = {
+        event: this.currentEvent?.eventName || this.currentEvent?.name || 'Event',
+        gameNumber: currentGame.gameNumber || currentGame.game || `Game${this.currentGameIndex + 1}`,
+        team1: currentGame.team1 || currentGame.homeTeam || currentGame.team1Name || 'Team1',
+        team2: currentGame.team2 || currentGame.awayTeam || currentGame.team2Name || 'Team2'
+      };
+      
+      console.log('📹 Transitioning OBS recording for game:', gameData);
+      
+      // Perform the recording transition
+      const result = await this.obsWebSocket.transitionGameRecording(gameData);
+      
+      if (result.success) {
+        const message = result.wasRecording 
+          ? `Recording updated: ${result.filename}`
+          : `Recording started: ${result.filename}`;
+        this.showNotification('success', message);
+        console.log(`📹 OBS recording transition successful: ${result.filename}`);
+      } else {
+        let errorMessage = 'Failed to update OBS recording';
+        
+        switch (result.reason) {
+          case 'disabled':
+            // Silent - already logged
+            return;
+          case 'connection_failed':
+            errorMessage = 'Could not connect to OBS WebSocket';
+            break;
+          case 'error':
+            errorMessage = `OBS error: ${result.error || 'Unknown error'}`;
+            break;
+        }
+        
+        console.warn('📹 OBS recording transition failed:', result);
+        this.showNotification('warning', errorMessage);
+      }
+      
+    } catch (error) {
+      console.error('📹 Error during OBS recording transition:', error);
+      this.showNotification('error', 'OBS recording error');
     }
   }
 
@@ -1055,10 +1144,28 @@ class UIManager {
    * Save settings
    */
   saveSettings() {
+    // Save Singular Live token
     const singularTokenInput = document.getElementById('singular-token');
     if (singularTokenInput) {
       this.singularToken = singularTokenInput.value.trim();
       this.saveSingularToken();
+    }
+    
+    // Save OBS settings
+    const obsEnabled = document.getElementById('obs-enabled');
+    const obsHost = document.getElementById('obs-host');
+    const obsPort = document.getElementById('obs-port');
+    const obsPassword = document.getElementById('obs-password');
+    
+    if (obsEnabled && obsHost && obsPort && obsPassword) {
+      const obsSettings = {
+        enabled: obsEnabled.checked,
+        host: obsHost.value.trim() || 'localhost',
+        port: parseInt(obsPort.value) || 4455,
+        password: obsPassword.value.trim()
+      };
+      
+      this.obsWebSocket.saveSettings(obsSettings);
     }
     
     this.showNotification('success', 'Settings saved');
@@ -1084,9 +1191,23 @@ class UIManager {
    * Load settings into UI
    */
   loadSettingsToUI() {
+    // Load Singular Live token
     const singularTokenInput = document.getElementById('singular-token');
     if (singularTokenInput) {
       singularTokenInput.value = this.singularToken;
+    }
+    
+    // Load OBS settings
+    const obsEnabled = document.getElementById('obs-enabled');
+    const obsHost = document.getElementById('obs-host');
+    const obsPort = document.getElementById('obs-port');
+    const obsPassword = document.getElementById('obs-password');
+    
+    if (obsEnabled && obsHost && obsPort && obsPassword) {
+      obsEnabled.checked = this.obsWebSocket.enabled;
+      obsHost.value = this.obsWebSocket.host;
+      obsPort.value = this.obsWebSocket.port;
+      obsPassword.value = this.obsWebSocket.password;
     }
   }
 
@@ -1646,6 +1767,8 @@ class UIManager {
       });
     });
   }
+
+  // ...existing code...
 }
 
 // Make UIManager available globally
