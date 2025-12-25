@@ -10,6 +10,7 @@ class UIManager {
     this.currentSchedule = null; // Store loaded schedule
     this.currentStreams = []; // Store current streams
     this.originalGameData = null; // Store original data for comparison
+    this.timezoneOffset = 0; // Hours to add/subtract from local time
     this.fileCabinetAPI = new FileCabinetAPIService();
     this.events = []; // Store fetched events
     
@@ -27,6 +28,18 @@ class UIManager {
     try {
       // Load the original UI template structure
       await this.loadOriginalTemplate();
+      
+      // Load any saved timezone offset first
+      this.loadTimezoneOffset();
+      
+      // Show timezone confirmation popup before allowing interaction
+      console.log('🕐 Showing timezone verification popup...');
+      const timezoneConfirmed = await this.showTimezonePopup();
+      
+      if (!timezoneConfirmed) {
+        console.log('⚠️ User cancelled timezone setup');
+        return; // Don't proceed if user cancels timezone setup
+      }
       
       // Initialize components with File Cabinet API
       await this.initializeComponents();
@@ -978,10 +991,42 @@ class UIManager {
   }
 
   /**
+   * Save timezone offset to localStorage for future sessions
+   */
+  saveTimezoneOffset() {
+    try {
+      localStorage.setItem('gols-timezone-offset', this.timezoneOffset.toString());
+    } catch (error) {
+      console.warn('Failed to save timezone offset to localStorage:', error);
+    }
+  }
+
+  /**
+   * Load timezone offset from localStorage
+   */
+  loadTimezoneOffset() {
+    try {
+      const saved = localStorage.getItem('gols-timezone-offset');
+      if (saved !== null) {
+        this.timezoneOffset = parseInt(saved);
+        console.log(`🕐 Loaded saved timezone offset: ${this.timezoneOffset} hours`);
+        return true;
+      }
+    } catch (error) {
+      console.warn('Failed to load timezone offset from localStorage:', error);
+    }
+    return false;
+  }
+
+  /**
    * Get current time in local timezone formatted as HH:MM AM/PM
+   * Applies the user-configured timezone offset
    */
   getCurrentLocalTime() {
     const now = new Date();
+    // Apply timezone offset
+    now.setHours(now.getHours() + this.timezoneOffset);
+    
     return now.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
@@ -993,7 +1038,7 @@ class UIManager {
    * Parse time string and subtract minutes
    * @param {string} timeString - Time in format like "8:10:00 AM" or "8:10 AM"
    * @param {number} minutesToSubtract - Minutes to subtract
-   * @returns {string} - Formatted time string
+   * @returns {string} - Formatted time string (with timezone offset applied)
    */
   subtractMinutesFromTime(timeString, minutesToSubtract) {
     if (!timeString || timeString === 'TBD') return 'TBD';
@@ -1017,6 +1062,9 @@ class UIManager {
       // Subtract minutes
       date.setMinutes(date.getMinutes() - minutesToSubtract);
       
+      // Apply timezone offset
+      date.setHours(date.getHours() + this.timezoneOffset);
+      
       // Format back to 12-hour format
       return date.toLocaleTimeString('en-US', {
         hour: 'numeric',
@@ -1030,7 +1078,49 @@ class UIManager {
   }
 
   /**
-   * Set actual start time for the first game (5 minutes before official start)
+   * Parse time string and subtract minutes WITHOUT timezone offset (for first game)
+   * @param {string} timeString - Time in format like "8:10:00 AM" or "8:10 AM"
+   * @param {number} minutesToSubtract - Minutes to subtract
+   * @returns {string} - Formatted time string (NO timezone offset applied)
+   */
+  subtractMinutesFromTimeRaw(timeString, minutesToSubtract) {
+    if (!timeString || timeString === 'TBD') return 'TBD';
+    
+    try {
+      // Parse the time string
+      const timeMatch = timeString.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+      if (!timeMatch) return timeString; // Return original if can't parse
+      
+      const [, hours, minutes, seconds, ampm] = timeMatch;
+      
+      // Convert to 24-hour format
+      let hour24 = parseInt(hours);
+      if (ampm.toUpperCase() === 'PM' && hour24 !== 12) hour24 += 12;
+      if (ampm.toUpperCase() === 'AM' && hour24 === 12) hour24 = 0;
+      
+      // Create date object with today's date and the parsed time
+      const date = new Date();
+      date.setHours(hour24, parseInt(minutes), parseInt(seconds) || 0, 0);
+      
+      // Subtract minutes
+      date.setMinutes(date.getMinutes() - minutesToSubtract);
+      
+      // DO NOT apply timezone offset - use raw scheduled time
+      
+      // Format back to 12-hour format
+      return date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch (error) {
+      console.warn('Error parsing time:', timeString, error);
+      return timeString; // Return original if error
+    }
+  }
+
+  /**
+   * Set actual start time for the first game (5 minutes before official start - NO timezone offset)
    */
   setFirstGameActualStartTime() {
     if (!this.currentSchedule || !this.currentSchedule.games || this.currentSchedule.games.length === 0) {
@@ -1039,17 +1129,212 @@ class UIManager {
 
     const firstGame = this.currentSchedule.games[0];
     if (firstGame && firstGame.time) {
-      const actualStartTime = this.subtractMinutesFromTime(firstGame.time, 5);
+      // Use raw time calculation (no timezone offset) for first game
+      const actualStartTime = this.subtractMinutesFromTimeRaw(firstGame.time, 5);
       
       // Update the field
       this.setInputValue('actual-start-time', actualStartTime);
       
-      // Update the stored data
-      if (this.originalGameData) {
-        this.originalGameData['actual-start-time'] = actualStartTime;
-      }
+      // DO NOT update originalGameData here - let it keep the original value
+      // This way the change will be detected and saved when navigating away
       
-      console.log(`🕐 Set first game actual start time: ${actualStartTime} (5 min before ${firstGame.time})`);
+      console.log(`🕐 Set first game actual start time: ${actualStartTime} (5 min before scheduled ${firstGame.time}, NO timezone offset)`);
+    }
+  }
+
+  /**
+   * Show timezone confirmation popup on startup
+   */
+  async showTimezonePopup() {
+    return new Promise((resolve) => {
+      // Get current local time and UTC offset for display
+      const now = new Date();
+      const currentTime = now.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZoneName: 'short'
+      });
+      
+      // Calculate current UTC offset
+      const currentUTCOffset = -now.getTimezoneOffset() / 60;
+      const currentUTCString = `(${currentUTCOffset >= 0 ? '+' : ''}${currentUTCOffset} UTC)`;
+      const currentTimeWithUTC = `${currentTime} ${currentUTCString}`;
+
+      // Create popup overlay
+      const overlay = document.createElement('div');
+      overlay.className = 'gols-timezone-overlay';
+
+      // Create popup content
+      const popup = document.createElement('div');
+      popup.className = 'gols-timezone-popup';
+
+      // Message about saved offset if one exists
+      const savedMessage = this.timezoneOffset !== 0 ? 
+        `<div class="gols-timezone-saved">
+          <i class="fas fa-check-circle"></i> Previously saved: ${this.timezoneOffset > 0 ? '+' : ''}${this.timezoneOffset} hours
+        </div>` : '';
+
+      popup.innerHTML = `
+        <div class="gols-timezone-header">
+          <div class="gols-timezone-icon">
+            <i class="fas fa-clock"></i>
+          </div>
+          <h2 class="gols-timezone-title">Time Zone Verification</h2>
+          <p class="gols-timezone-subtitle">
+            Your computer's current time is: <strong>${currentTimeWithUTC}</strong>
+          </p>
+        </div>
+        
+        ${savedMessage}
+        
+        <div class="gols-timezone-content">
+          <div class="gols-timezone-question">
+            <strong>Is this the correct local time for your event location?</strong>
+          </div>
+          <div class="gols-timezone-description">
+            If your computer's time zone doesn't match the event location, 
+            you can adjust it below:
+          </div>
+          
+          <div class="gols-timezone-control-group">
+            <label class="gols-timezone-label">Time Adjustment:</label>
+            <select id="timezone-offset" class="gols-timezone-select">
+              <option value="0">No change</option>
+              <option value="-12">-12 hours</option>
+              <option value="-11">-11 hours</option>
+              <option value="-10">-10 hours</option>
+              <option value="-9">-9 hours</option>
+              <option value="-8">-8 hours</option>
+              <option value="-7">-7 hours</option>
+              <option value="-6">-6 hours</option>
+              <option value="-5">-5 hours</option>
+              <option value="-4">-4 hours</option>
+              <option value="-3">-3 hours</option>
+              <option value="-2">-2 hours</option>
+              <option value="-1">-1 hour</option>
+              <option value="1">+1 hour</option>
+              <option value="2">+2 hours</option>
+              <option value="3">+3 hours</option>
+              <option value="4">+4 hours</option>
+              <option value="5">+5 hours</option>
+              <option value="6">+6 hours</option>
+              <option value="7">+7 hours</option>
+              <option value="8">+8 hours</option>
+              <option value="9">+9 hours</option>
+              <option value="10">+10 hours</option>
+              <option value="11">+11 hours</option>
+              <option value="12">+12 hours</option>
+            </select>
+          </div>
+          
+          <div id="preview-time" class="gols-timezone-preview">
+            <strong>Adjusted Time: ${currentTimeWithUTC}</strong>
+          </div>
+        </div>
+        
+        <div class="gols-timezone-actions">
+          <button id="timezone-cancel" class="gols-timezone-button gols-timezone-button-secondary">
+            Cancel
+          </button>
+          <button id="timezone-confirm" class="gols-timezone-button gols-timezone-button-primary">
+            Continue
+          </button>
+        </div>
+      `;
+
+      overlay.appendChild(popup);
+      
+      // Append to the widget container instead of body to stay within bounds
+      const widgetContainer = document.getElementById('gols-widget');
+      if (widgetContainer) {
+        widgetContainer.appendChild(overlay);
+      } else {
+        document.body.appendChild(overlay);
+      }
+
+      // Pre-select the current timezone offset in the dropdown
+      const offsetSelect = popup.querySelector('#timezone-offset');
+      const previewDiv = popup.querySelector('#preview-time');
+      offsetSelect.value = this.timezoneOffset.toString();
+      
+      // Update preview with current offset
+      this.updateTimezonePreview(offsetSelect, previewDiv, currentTimeWithUTC);
+      
+      offsetSelect.addEventListener('change', () => {
+        this.updateTimezonePreview(offsetSelect, previewDiv, currentTimeWithUTC);
+      });
+
+      // Handle buttons
+      popup.querySelector('#timezone-confirm').addEventListener('click', () => {
+        this.timezoneOffset = parseInt(offsetSelect.value);
+        console.log(`🕐 Timezone offset set to: ${this.timezoneOffset} hours`);
+        
+        // Save the timezone offset for future sessions
+        this.saveTimezoneOffset();
+        
+        if (this.timezoneOffset !== 0) {
+          this.showNotification('info', `Time adjusted by ${this.timezoneOffset > 0 ? '+' : ''}${this.timezoneOffset} hours`);
+        }
+        
+        const widgetContainer = document.getElementById('gols-widget');
+        if (widgetContainer && widgetContainer.contains(overlay)) {
+          widgetContainer.removeChild(overlay);
+        } else {
+          document.body.removeChild(overlay);
+        }
+        resolve(true);
+      });
+
+      popup.querySelector('#timezone-cancel').addEventListener('click', () => {
+        const widgetContainer = document.getElementById('gols-widget');
+        if (widgetContainer && widgetContainer.contains(overlay)) {
+          widgetContainer.removeChild(overlay);
+        } else {
+          document.body.removeChild(overlay);
+        }
+        resolve(false);
+      });
+
+      // Handle overlay click (close)
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          const widgetContainer = document.getElementById('gols-widget');
+          if (widgetContainer && widgetContainer.contains(overlay)) {
+            widgetContainer.removeChild(overlay);
+          } else {
+            document.body.removeChild(overlay);
+          }
+          resolve(false);
+        }
+      });
+    });
+  }
+
+  /**
+   * Update the timezone preview display
+   */
+  updateTimezonePreview(offsetSelect, previewDiv, originalTimeWithUTC) {
+    const offset = parseInt(offsetSelect.value);
+    const adjustedTime = new Date();
+    adjustedTime.setHours(adjustedTime.getHours() + offset);
+    
+    const adjustedTimeString = adjustedTime.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    
+    // Calculate adjusted UTC offset
+    const currentUTCOffset = -new Date().getTimezoneOffset() / 60;
+    const adjustedUTCOffset = currentUTCOffset + offset;
+    const adjustedUTCString = `(${adjustedUTCOffset >= 0 ? '+' : ''}${adjustedUTCOffset} UTC)`;
+    
+    if (offset === 0) {
+      previewDiv.innerHTML = `<strong>Adjusted Time: ${originalTimeWithUTC}</strong>`;
+    } else {
+      const offsetDisplay = offset > 0 ? `+${offset}h` : `${offset}h`;
+      previewDiv.innerHTML = `<strong>Adjusted Time: ${adjustedTimeString} (${offsetDisplay}) ${adjustedUTCString}</strong>`;
     }
   }
 }
