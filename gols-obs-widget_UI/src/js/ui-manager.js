@@ -602,16 +602,35 @@ class UIManager {
     
     const newIndex = this.currentGameIndex + direction;
     if (newIndex >= 0 && newIndex < this.currentSchedule.games.length) {
+      
+      // If moving to next game (direction > 0), handle OBS recording transition BEFORE changing games
+      if (direction > 0) {
+        // Get the CURRENT game data (the one being finished) for OBS recording
+        const currentGame = this.currentSchedule.games[this.currentGameIndex];
+        if (currentGame) {
+          console.log(`📹 Creating recording for current game at index ${this.currentGameIndex}:`, currentGame);
+          
+          // Prepare current game data for OBS filename generation
+          const currentGameData = {
+            event: this.currentEvent?.eventName || this.currentEvent?.name || 'Event',
+            gameNumber: currentGame.gameNumber || currentGame.game || `Game${this.currentGameIndex + 1}`,
+            team1: currentGame.team1 || currentGame.homeTeam || currentGame.team1Name || 'Team1',
+            team2: currentGame.team2 || currentGame.awayTeam || currentGame.team2Name || 'Team2'
+          };
+          
+          // Handle OBS recording transition for CURRENT game before moving to next
+          await this.handleOBSRecordingTransition(currentGameData);
+        }
+      }
+      
+      // NOW update to the new game
       this.currentGameIndex = newIndex;
       this.updateGameDisplay();
       
-      // If moving to next game (direction > 0), handle OBS recording transition
+      // If moving to next game (direction > 0), set actual start time for the NEW game
       if (direction > 0) {
         const currentTime = this.getCurrentLocalTime();
         this.setInputValue('actual-start-time', currentTime);
-        
-        // Handle OBS recording transition for new game
-        await this.handleOBSRecordingTransition();
         
         // Update the stored original data so it's considered a "change" that will be saved
         if (this.originalGameData) {
@@ -633,28 +652,30 @@ class UIManager {
   }
 
   /**
-   * Handle OBS recording transition for new game
+   * Handle OBS recording transition for specified game data
    */
-  async handleOBSRecordingTransition() {
+  async handleOBSRecordingTransition(gameData = null) {
     if (!this.obsWebSocket.enabled) {
       return;
     }
     
     try {
-      // Get current game data for filename generation
-      const currentGame = this.currentSchedule.games[this.currentGameIndex];
-      if (!currentGame) {
-        console.warn('📹 No current game data for OBS recording');
-        return;
+      // If no game data provided, get current game data (fallback)
+      if (!gameData) {
+        const currentGame = this.currentSchedule.games[this.currentGameIndex];
+        if (!currentGame) {
+          console.warn('📹 No current game data for OBS recording');
+          return;
+        }
+        
+        // Prepare game data for OBS filename generation
+        gameData = {
+          event: this.currentEvent?.eventName || this.currentEvent?.name || 'Event',
+          gameNumber: currentGame.gameNumber || currentGame.game || `Game${this.currentGameIndex + 1}`,
+          team1: currentGame.team1 || currentGame.homeTeam || currentGame.team1Name || 'Team1',
+          team2: currentGame.team2 || currentGame.awayTeam || currentGame.team2Name || 'Team2'
+        };
       }
-      
-      // Prepare game data for OBS filename generation
-      const gameData = {
-        event: this.currentEvent?.eventName || this.currentEvent?.name || 'Event',
-        gameNumber: currentGame.gameNumber || currentGame.game || `Game${this.currentGameIndex + 1}`,
-        team1: currentGame.team1 || currentGame.homeTeam || currentGame.team1Name || 'Team1',
-        team2: currentGame.team2 || currentGame.awayTeam || currentGame.team2Name || 'Team2'
-      };
       
       console.log('📹 Transitioning OBS recording for game:', gameData);
       

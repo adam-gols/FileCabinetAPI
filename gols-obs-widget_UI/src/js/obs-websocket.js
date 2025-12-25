@@ -274,25 +274,12 @@ class OBSWebSocketService {
   }
 
   /**
-   * Start recording with specified filename
+   * Start recording (filename should already be set)
    */
-  async startRecording(filename) {
+  async startRecording() {
     try {
-      if (!filename) {
-        throw new Error('Filename is required');
-      }
-
-      // Set recording filename using profile settings
-      // Note: In OBS v5.x, filename formatting is handled differently
-      await this.sendRequest('SetProfileParameter', {
-        parameterCategory: 'SimpleOutput',
-        parameterName: 'FilenameFormatting',
-        parameterValue: filename
-      });
-
-      // Start recording
       await this.sendRequest('StartRecord');
-      console.log(`📹 Started recording: ${filename}`);
+      console.log('📹 Started recording');
       return true;
     } catch (error) {
       console.error('📹 Failed to start recording:', error);
@@ -357,25 +344,60 @@ class OBSWebSocketService {
 
       // Check if currently recording
       const currentlyRecording = await this.isRecording();
+      console.log(`📹 Currently recording: ${currentlyRecording}`);
       
-      // Generate new filename
+      // STEP 1: Generate and SET the new filename FIRST
       const newFilename = this.generateGameFilename(gameData);
+      console.log(`📹 STEP 1: Setting new filename format: ${newFilename}`);
       
-      if (currentlyRecording) {
-        // Stop current recording
-        console.log('📹 Stopping current recording...');
-        await this.stopRecording();
-        
-        // Wait a moment for the recording to fully stop
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      await this.sendRequest('SetProfileParameter', {
+        parameterCategory: 'Output',
+        parameterName: 'FilenameFormatting',
+        parameterValue: newFilename
+      });
+      
+      // Wait for filename to be processed by OBS
+      console.log('📹 STEP 1: Waiting 5 seconds for filename to be set in OBS...');
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+      // Verify the filename was set correctly
+      try {
+        const currentFormat = await this.sendRequest('GetProfileParameter', {
+          parameterCategory: 'Output',
+          parameterName: 'FilenameFormatting'
+        });
+        console.log(`📹 STEP 1: Verified filename is now: ${currentFormat.parameterValue}`);
+        if (currentFormat.parameterValue !== newFilename) {
+          console.warn(`📹 WARNING: Filename not set correctly! Expected: ${newFilename}, Got: ${currentFormat.parameterValue}`);
+        }
+      } catch (error) {
+        console.warn('📹 Could not verify filename format:', error);
       }
       
-      // Start new recording
-      console.log(`📹 Starting new recording: ${newFilename}`);
-      const started = await this.startRecording(newFilename);
+      // STEP 2: STOP current recording (if recording)
+      if (currentlyRecording) {
+        console.log('📹 STEP 2: Stopping current recording...');
+        await this.stopRecording();
+        
+        // Wait for recording to fully stop and file to be saved
+        console.log('📹 STEP 2: Waiting 2 seconds for recording to fully stop...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        console.log('📹 STEP 2: Recording stopped successfully');
+      } else {
+        console.log('📹 STEP 2: No recording to stop (first game)');
+      }
+      
+      // STEP 3: START new recording with the new filename
+      console.log(`📹 STEP 3: Starting new recording with filename: ${newFilename}`);
+      await this.sendRequest('StartRecord');
+      
+      // Wait for recording to start
+      console.log('📹 STEP 3: Waiting 1 second for recording to start...');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('📹 Recording started successfully');
       
       return { 
-        success: started, 
+        success: true, 
         filename: newFilename,
         wasRecording: currentlyRecording
       };
@@ -383,6 +405,23 @@ class OBSWebSocketService {
     } catch (error) {
       console.error('📹 Failed to transition recording:', error);
       return { success: false, reason: 'error', error: error.message };
+    }
+  }
+
+  /**
+   * Get current filename formatting
+   */
+  async getCurrentFilenameFormatting() {
+    try {
+      const response = await this.sendRequest('GetProfileParameter', {
+        parameterCategory: 'Output',
+        parameterName: 'FilenameFormatting'
+      });
+      console.log('📹 Current filename formatting:', response.parameterValue);
+      return response.parameterValue;
+    } catch (error) {
+      console.error('📹 Failed to get filename formatting:', error);
+      return null;
     }
   }
 
