@@ -389,7 +389,7 @@ class OBSWebSocketService {
     const obsTimestamp = '%Y%m%d-%H%M%S';
 
     // Do NOT include an extension in FilenameFormatting; OBS will append the correct container.
-    const filename = `${eventName}_${dateStr}_${location}_${timeStr}_${team1}_vs_${team2}_${obsTimestamp}`;
+    const filename = `${eventName}_${dateStr}_${location}_${timeStr}_${team1}_vs_${team2}`;
 
     console.log('📹 Generated filename:', filename);
     return filename;
