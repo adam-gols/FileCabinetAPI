@@ -582,8 +582,20 @@ class UIManager {
     if (!this.currentSchedule || !this.currentSchedule.games || this.currentSchedule.games.length === 0) {
       return;
     }
-    
-    // Show confirmation popup for "Save & Next Game" (direction > 0)
+    // If on the last game and trying to go forward, finish streaming (skip confirmation)
+    if (direction > 0 && this.currentGameIndex === this.currentSchedule.games.length - 1) {
+      try {
+        await this.saveCurrentGameChanges();
+      } catch (error) {
+        console.error('Error saving current game changes:', error);
+      }
+      if (this.obsWebSocket && this.obsWebSocket.enabled) {
+        await this.obsWebSocket.stopRecording();
+      }
+      this.showStreamingCompletePopup();
+      return;
+    }
+    // Show confirmation popup for "Save & Next Game" (direction > 0, not last game)
     if (direction > 0) {
       const confirmed = await this.showSaveAndNextConfirmation();
       if (!confirmed) {
@@ -591,7 +603,6 @@ class UIManager {
         return; // Stay on current game
       }
     }
-    
     // Save any changes to current game before navigating
     try {
       await this.saveCurrentGameChanges();
@@ -599,12 +610,21 @@ class UIManager {
       console.error('Error saving current game changes:', error);
       // Continue with navigation even if save fails
     }
-    
     const newIndex = this.currentGameIndex + direction;
     if (newIndex >= 0 && newIndex < this.currentSchedule.games.length) {
       
       // If moving to next game (direction > 0), handle OBS recording transition BEFORE changing games
       if (direction > 0) {
+        // If this is the last game, just stop recording and show popup
+        if (this.currentGameIndex === this.currentSchedule.games.length - 1) {
+          // Stop recording only (no filename update or start)
+          if (this.obsWebSocket && this.obsWebSocket.enabled) {
+            await this.obsWebSocket.stopRecording();
+          }
+          this.showStreamingCompletePopup();
+          return;
+        }
+        
         // Get the UPCOMING game data (the one we are navigating to) for OBS recording
         const nextGame = this.currentSchedule.games[newIndex];
         if (nextGame) {
@@ -812,7 +832,14 @@ class UIManager {
         prevBtn.disabled = this.currentGameIndex <= 0;
       }
       if (nextBtn) {
-        nextBtn.disabled = this.currentGameIndex >= this.currentSchedule.games.length - 1;
+        // Only disable if there are no more games after this one (should never happen in normal flow)
+        nextBtn.disabled = false;
+        // Change label for final game
+        if (this.currentGameIndex === this.currentSchedule.games.length - 1) {
+          nextBtn.innerHTML = 'SAVE & FINISH STREAMING';
+        } else {
+          nextBtn.innerHTML = 'SAVE & NEXT GAME <i class="fas fa-chevron-right"></i>';
+        }
       }
     } else {
       // No schedule loaded - disable navigation
@@ -1797,7 +1824,94 @@ class UIManager {
     });
   }
 
-  // ...existing code...
+  /**
+   * Show popup to indicate streaming is complete
+   */
+  showStreamingCompletePopup() {
+    return new Promise((resolve) => {
+      // Create overlay
+      const overlay = document.createElement('div');
+      overlay.className = 'gols-streaming-complete-overlay';
+      
+      // Create popup container
+      const popup = document.createElement('div');
+      popup.className = 'gols-streaming-complete-popup';
+      
+      // Create header section
+      const header = document.createElement('div');
+      header.className = 'gols-streaming-complete-header';
+      
+      const icon = document.createElement('div');
+      icon.className = 'gols-streaming-complete-icon';
+      icon.innerHTML = '<i class="fas fa-check-circle"></i>';
+      
+      const title = document.createElement('h3');
+      title.className = 'gols-streaming-complete-title';
+      title.textContent = 'Streaming Complete';
+      
+      const subtitle = document.createElement('p');
+      subtitle.className = 'gols-streaming-complete-subtitle';
+      subtitle.textContent = 'The final game has been saved and the stream is complete.';
+      
+      header.appendChild(icon);
+      header.appendChild(title);
+      header.appendChild(subtitle);
+      
+      // Create buttons container
+      const buttonsContainer = document.createElement('div');
+      buttonsContainer.className = 'gols-streaming-complete-buttons';
+      
+      // Create OK button  
+      const okBtn = document.createElement('button');
+      okBtn.className = 'gols-streaming-complete-btn-ok';
+      okBtn.textContent = 'OK';
+      
+      buttonsContainer.appendChild(okBtn);
+      
+      // Assemble popup
+      popup.appendChild(header);
+      popup.appendChild(buttonsContainer);
+      overlay.appendChild(popup);
+      
+      // Add to widget container to ensure proper constraints
+      const widgetContainer = document.getElementById('gols-widget');
+      if (widgetContainer) {
+        widgetContainer.appendChild(overlay);
+      } else {
+        document.body.appendChild(overlay);
+      }
+      
+      // Event handlers
+      const cleanup = () => {
+        if (overlay && overlay.parentNode) {
+          overlay.parentNode.removeChild(overlay);
+        }
+      };
+      
+      okBtn.addEventListener('click', () => {
+        cleanup();
+        resolve(true);
+      });
+      
+      // Allow ESC to close
+      const handleEscape = (e) => {
+        if (e.key === 'Escape') {
+          cleanup();
+          document.removeEventListener('keydown', handleEscape);
+          resolve(false);
+        }
+      };
+      document.addEventListener('keydown', handleEscape);
+      
+      // Allow clicking overlay to close
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          cleanup();
+          resolve(false);
+        }
+      });
+    });
+  }
 }
 
 // Make UIManager available globally
