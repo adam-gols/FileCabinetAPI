@@ -94,6 +94,12 @@ body {
   background: white;
 }
 
+/* Ensure the widget can render correctly inside the auto-scale design canvas */
+#widget-canvas #gols-widget {
+  width: 100%;
+  height: 100%;
+}
+
 /* Loading State */
 .gols-loading {
   display: flex;
