@@ -355,15 +355,15 @@ class OBSWebSocketService {
     };
 
     const formatTimeCompact = (input) => {
-      // Desired example: 8:00AM (no space)
+      // Desired example: 8.00AM (no space, use '.' instead of ':')
       if (!input) return null;
       const s = String(input).trim();
       // Already like 8:00 AM / 8:00AM
       let m = s.match(/^(\d{1,2}:\d{2})\s*([AaPp][Mm])$/);
-      if (m) return `${m[1]}${m[2].toUpperCase()}`;
+      if (m) return `${m[1].replace(/:/g, '.')}${m[2].toUpperCase()}`;
       // 800AM / 0800AM
       m = s.match(/^(\d{1,2})(\d{2})\s*([AaPp][Mm])$/);
-      if (m) return `${parseInt(m[1], 10)}:${m[2]}${m[3].toUpperCase()}`;
+      if (m) return `${parseInt(m[1], 10)}.${m[2]}${m[3].toUpperCase()}`;
       // 24h time 13:05
       m = s.match(/^(\d{1,2}):(\d{2})$/);
       if (m) {
@@ -372,9 +372,9 @@ class OBSWebSocketService {
         const ampm = hh >= 12 ? 'PM' : 'AM';
         hh = hh % 12;
         if (hh === 0) hh = 12;
-        return `${hh}:${mm}${ampm}`;
+        return `${hh}.${mm}${ampm}`;
       }
-      return sanitize(s);
+      return sanitize(s).replace(/:/g, '.');
     };
 
     const eventName = sanitize(gameData.event || 'Event');
