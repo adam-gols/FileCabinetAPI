@@ -15,6 +15,7 @@ class UIManager {
     this.fileCabinetAPI = new FileCabinetAPIService();
     this.obsWebSocket = new OBSWebSocketService(); // OBS WebSocket integration
     this.events = []; // Store fetched events
+    this.sessionStateKey = 'gols-session-state-v1';
     
     console.log('UIManager created - will load original UI structure with File Cabinet integration');
   }
@@ -311,6 +312,9 @@ class UIManager {
     // Initialize empty stream selector (will be populated when event is selected)
     this.clearStreamSelector();
     
+    // Prompt user to restore last session (if any)
+    await this.promptRestoreSession();
+    
     // Show initial notifications
     this.showDemoNotifications();
   }
@@ -532,6 +536,7 @@ class UIManager {
       this.clearGameDisplay();
       this.updateGameNavigation();
     }
+    this.saveSessionState();
   }
 
   async handleRefreshEvents() {
@@ -575,6 +580,7 @@ class UIManager {
       this.updateGameDisplay();
       this.updateGameNavigation();
     }
+    this.saveSessionState();
   }
 
   async navigateGame(direction) {
@@ -667,6 +673,7 @@ class UIManager {
       const totalGames = this.currentSchedule.games.length;
       this.showNotification('info', `${actionText} loaded (${gameNum} of ${totalGames})`);
     }
+    this.saveSessionState();
   }
 
   /**
@@ -1904,6 +1911,132 @@ class UIManager {
       document.addEventListener('keydown', handleEscape);
       
       // Allow clicking overlay to close
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          cleanup();
+          resolve(false);
+        }
+      });
+    });
+  }
+
+  async promptRestoreSession() {
+    const state = this.loadSessionState();
+    if (!state?.eventId || !state?.streamId) return;
+
+    const confirmed = await this.showRestoreSessionPopup(state);
+    if (!confirmed) return;
+
+    // Restore event selection
+    const eventSelector = document.getElementById('event-selector');
+    if (!eventSelector) return;
+    eventSelector.value = state.eventId;
+
+    // Trigger normal event change flow
+    await this.handleEventChange({ target: eventSelector });
+
+    // Restore stream selection
+    const streamSelector = document.getElementById('stream-selector');
+    if (streamSelector) {
+      streamSelector.value = state.streamId;
+      await this.handleStreamChange({ target: streamSelector });
+    }
+
+    // After schedule loads, restore game index if valid
+    if (this.currentSchedule?.games?.length) {
+      const idx = Math.max(0, Math.min(state.gameIndex ?? 0, this.currentSchedule.games.length - 1));
+      this.currentGameIndex = idx;
+      this.updateGameDisplay();
+      this.updateGameNavigation();
+    }
+  }
+
+  saveSessionState() {
+    try {
+      const eventSelector = document.getElementById('event-selector');
+      const streamSelector = document.getElementById('stream-selector');
+      const state = {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        eventId: eventSelector?.value || '',
+        streamId: streamSelector?.value || '',
+        gameIndex: Number.isInteger(this.currentGameIndex) ? this.currentGameIndex : 0
+      };
+      localStorage.setItem(this.sessionStateKey, JSON.stringify(state));
+    } catch (e) {
+      console.warn('Failed to save session state:', e);
+    }
+  }
+
+  loadSessionState() {
+    try {
+      const raw = localStorage.getItem(this.sessionStateKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.version !== 1) return null;
+      return parsed;
+    } catch (e) {
+      console.warn('Failed to load session state:', e);
+      return null;
+    }
+  }
+
+  showRestoreSessionPopup(state) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.className = 'gols-timezone-overlay';
+
+      const popup = document.createElement('div');
+      popup.className = 'gols-timezone-popup';
+
+      const savedAt = state.savedAt ? new Date(state.savedAt).toLocaleString() : 'Unknown time';
+
+      popup.innerHTML = `
+        <div class="gols-timezone-header">
+          <div class="gols-timezone-icon">
+            <i class="fas fa-redo"></i>
+          </div>
+          <h2 class="gols-timezone-title">Restore Session?</h2>
+          <p class="gols-timezone-subtitle">
+            A previous session was saved at <strong>${savedAt}</strong>.
+          </p>
+        </div>
+
+        <div class="gols-timezone-content">
+          <div class="gols-timezone-description">
+            Resume where you left off (event, stream, and game)?
+          </div>
+        </div>
+
+        <div class="gols-timezone-actions">
+          <button id="restore-cancel" class="gols-timezone-button gols-timezone-button-secondary">No</button>
+          <button id="restore-confirm" class="gols-timezone-button gols-timezone-button-primary">Yes, Restore</button>
+        </div>
+      `;
+
+      overlay.appendChild(popup);
+
+      const widgetContainer = document.getElementById('gols-widget');
+      if (widgetContainer) {
+        widgetContainer.appendChild(overlay);
+      } else {
+        document.body.appendChild(overlay);
+      }
+
+      const cleanup = () => {
+        const container = document.getElementById('gols-widget');
+        if (container && container.contains(overlay)) container.removeChild(overlay);
+        else if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      };
+
+      popup.querySelector('#restore-confirm').addEventListener('click', () => {
+        cleanup();
+        resolve(true);
+      });
+      popup.querySelector('#restore-cancel').addEventListener('click', () => {
+        cleanup();
+        resolve(false);
+      });
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
           cleanup();
