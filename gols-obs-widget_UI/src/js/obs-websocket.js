@@ -306,23 +306,92 @@ class OBSWebSocketService {
    */
   generateGameFilename(gameData) {
     console.log('📹 Generating filename for game data:', gameData);
-    
-    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
     const sanitize = (value) => {
-      // Convert to string and sanitize
       const str = String(value || '').trim();
       if (!str) return 'Unknown';
-      return str.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
+      // Keep letters/numbers, replace everything else with underscores
+      return str.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
     };
-    
+
+    const formatMMDDYY = (input) => {
+      // Accept Date, ISO date, or MM/DD/YYYY
+      try {
+        if (!input) return null;
+        if (input instanceof Date) {
+          const mm = String(input.getMonth() + 1).padStart(2, '0');
+          const dd = String(input.getDate()).padStart(2, '0');
+          const yy = String(input.getFullYear()).slice(-2);
+          return `${mm}-${dd}-${yy}`;
+        }
+        const s = String(input).trim();
+        // MM/DD/YYYY
+        let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+        if (m) {
+          const mm = String(m[1]).padStart(2, '0');
+          const dd = String(m[2]).padStart(2, '0');
+          const yyyy = m[3].length === 2 ? `20${m[3]}` : m[3];
+          const yy = String(yyyy).slice(-2);
+          return `${mm}-${dd}-${yy}`;
+        }
+        // YYYY-MM-DD (or ISO)
+        m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) {
+          const yy = m[1].slice(-2);
+          return `${m[2]}-${m[3]}-${yy}`;
+        }
+        // Fallback: try Date parsing
+        const d = new Date(s);
+        if (!Number.isNaN(d.getTime())) {
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          const yy = String(d.getFullYear()).slice(-2);
+          return `${mm}-${dd}-${yy}`;
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    };
+
+    const formatTimeCompact = (input) => {
+      // Desired example: 8:00AM (no space)
+      if (!input) return null;
+      const s = String(input).trim();
+      // Already like 8:00 AM / 8:00AM
+      let m = s.match(/^(\d{1,2}:\d{2})\s*([AaPp][Mm])$/);
+      if (m) return `${m[1]}${m[2].toUpperCase()}`;
+      // 800AM / 0800AM
+      m = s.match(/^(\d{1,2})(\d{2})\s*([AaPp][Mm])$/);
+      if (m) return `${parseInt(m[1], 10)}:${m[2]}${m[3].toUpperCase()}`;
+      // 24h time 13:05
+      m = s.match(/^(\d{1,2}):(\d{2})$/);
+      if (m) {
+        let hh = parseInt(m[1], 10);
+        const mm = m[2];
+        const ampm = hh >= 12 ? 'PM' : 'AM';
+        hh = hh % 12;
+        if (hh === 0) hh = 12;
+        return `${hh}:${mm}${ampm}`;
+      }
+      return sanitize(s);
+    };
+
     const eventName = sanitize(gameData.event || 'Event');
-    const gameNumber = sanitize(gameData.gameNumber || 'Game');
+    const dateStr = formatMMDDYY(gameData.date) || formatMMDDYY(new Date()) || 'UnknownDate';
+    const location = sanitize(gameData.location || 'Location');
+    const timeStr = formatTimeCompact(gameData.time || gameData.officialStartTime || gameData.officialStart || gameData.startTime) || 'UnknownTime';
     const team1 = sanitize(gameData.team1 || 'Team1');
     const team2 = sanitize(gameData.team2 || 'Team2');
-    
-    const filename = `${eventName}_${gameNumber}_${team1}_vs_${team2}_${date}`;
+
+    // Include OBS-safe timestamp token to avoid relying on OBS' own suffixing behavior.
+    // OBS supports strftime-style tokens in FilenameFormatting (example: %Y%m%d-%H%M%S).
+    const obsTimestamp = '%Y%m%d-%H%M%S';
+
+    // Do NOT include an extension in FilenameFormatting; OBS will append the correct container.
+    const filename = `${eventName}_${dateStr}_${location}_${timeStr}_${team1}_vs_${team2}_${obsTimestamp}`;
+
     console.log('📹 Generated filename:', filename);
-    
     return filename;
   }
 

@@ -16,6 +16,7 @@ class UIManager {
     this.obsWebSocket = new OBSWebSocketService(); // OBS WebSocket integration
     this.events = []; // Store fetched events
     this.sessionStateKey = 'gols-session-state-v1';
+    this.stateEndpoint = 'http://127.0.0.1:8000/state';
     
     console.log('UIManager created - will load original UI structure with File Cabinet integration');
   }
@@ -638,6 +639,9 @@ class UIManager {
           // Prepare next game data for OBS filename generation
           const nextGameData = {
             event: this.currentEvent?.eventName || this.currentEvent?.name || 'Event',
+            date: nextGame.date || this.currentSchedule?.date || '',
+            location: nextGame.location || this.currentSchedule?.location || '',
+            time: nextGame.time || nextGame.officialStart || nextGame.startTime || '',
             gameNumber: nextGame.gameNumber || nextGame.game || `Game${newIndex + 1}`,
             team1: nextGame.team1 || nextGame.homeTeam || nextGame.team1Name || 'Team1',
             team2: nextGame.team2 || nextGame.awayTeam || nextGame.team2Name || 'Team2'
@@ -780,6 +784,9 @@ class UIManager {
       if (this.currentGameIndex === 0 && this.obsWebSocket && this.obsWebSocket.enabled) {
         const firstGameData = {
           event: this.currentEvent?.eventName || this.currentEvent?.name || 'Event',
+          date: game.date || this.currentSchedule?.date || '',
+          location: game.location || this.currentSchedule?.location || '',
+          time: game.time || game.officialStart || game.startTime || '',
           gameNumber: game.gameNumber || game.game || `Game${this.currentGameIndex + 1}`,
           team1: game.team1 || game.homeTeam || game.team1Name || 'Team1',
           team2: game.team2 || game.awayTeam || game.team2Name || 'Team2'
@@ -1920,8 +1927,67 @@ class UIManager {
     });
   }
 
+  async saveSessionState() {
+    const eventSelector = document.getElementById('event-selector');
+    const streamSelector = document.getElementById('stream-selector');
+    const state = {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      eventId: eventSelector?.value || '',
+      streamId: streamSelector?.value || '',
+      gameIndex: Number.isInteger(this.currentGameIndex) ? this.currentGameIndex : 0
+    };
+
+    // Always keep localStorage as a fallback
+    try {
+      localStorage.setItem(this.sessionStateKey, JSON.stringify(state));
+    } catch (e) {
+      console.warn('Failed to save session state to localStorage:', e);
+    }
+
+    // Best-effort write to local helper (file-backed)
+    try {
+      await fetch(this.stateEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state)
+      });
+    } catch (e) {
+      // Silent: helper might not be running (e.g., dev server)
+    }
+  }
+
+  loadSessionState() {
+    // Fallback sync load (localStorage). File-backed state is fetched async in promptRestoreSession.
+    try {
+      const raw = localStorage.getItem(this.sessionStateKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.version !== 1) return null;
+      return parsed;
+    } catch (e) {
+      console.warn('Failed to load session state from localStorage:', e);
+      return null;
+    }
+  }
+
+  async fetchSessionStateFromHelper() {
+    try {
+      const res = await fetch(this.stateEndpoint, { method: 'GET' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const state = data?.state;
+      if (!state || state.version !== 1) return null;
+      return state;
+    } catch {
+      return null;
+    }
+  }
+
   async promptRestoreSession() {
-    const state = this.loadSessionState();
+    const helperState = await this.fetchSessionStateFromHelper();
+    const localState = this.loadSessionState();
+    const state = helperState || localState;
     if (!state?.eventId || !state?.streamId) return;
 
     const confirmed = await this.showRestoreSessionPopup(state);
@@ -1948,36 +2014,6 @@ class UIManager {
       this.currentGameIndex = idx;
       this.updateGameDisplay();
       this.updateGameNavigation();
-    }
-  }
-
-  saveSessionState() {
-    try {
-      const eventSelector = document.getElementById('event-selector');
-      const streamSelector = document.getElementById('stream-selector');
-      const state = {
-        version: 1,
-        savedAt: new Date().toISOString(),
-        eventId: eventSelector?.value || '',
-        streamId: streamSelector?.value || '',
-        gameIndex: Number.isInteger(this.currentGameIndex) ? this.currentGameIndex : 0
-      };
-      localStorage.setItem(this.sessionStateKey, JSON.stringify(state));
-    } catch (e) {
-      console.warn('Failed to save session state:', e);
-    }
-  }
-
-  loadSessionState() {
-    try {
-      const raw = localStorage.getItem(this.sessionStateKey);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      if (!parsed || parsed.version !== 1) return null;
-      return parsed;
-    } catch (e) {
-      console.warn('Failed to load session state:', e);
-      return null;
     }
   }
 
